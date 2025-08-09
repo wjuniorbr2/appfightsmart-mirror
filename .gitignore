@@ -1,27 +1,35 @@
-# Android/Gradle
+# Gradle
 .gradle/
+build/
 **/build/
-**/captures/
-local.properties
-.gradle/
-.gradle/*
 
 # IDE
 .idea/
 *.iml
-.DS_Store
 
-# Keystores
+# Local machine configs / SDK
+local.properties
+
+# Keystores & secrets
 *.jks
 *.keystore
+keystore.properties
+google-services.json
+app/google-services.json
 
-# Logs
+# Captures / misc
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Log / tmp
 *.log
+*.tmp
+*.swp
+.DS_Store
 
-# Generated
-app/**/generated/
-app/**/intermediates/
-
-# Patch workflow
-patches/processed/
-patches/failed/
+# Patch agent venv & artifacts
+tools/patch_agent/.venv/
+patches/incoming/
+patches/applied/
+patches/rejected/
