@@ -21,3 +21,7 @@ local.properties
 # Generated
 app/**/generated/
 app/**/intermediates/
+
+# Patch workflow
+patches/processed/
+patches/failed/
