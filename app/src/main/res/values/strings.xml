@@ -1,0 +1,52 @@
+<resources>
+
+    <string name="number_of_moves">Number of Moves: %d</string>
+    <string name="stop_the_bag">Stop the bag!</string>
+    <string name="force">Force: %.2f</string>
+    <string name="next_move">Next Move</string>
+    <string name="final_scores">Final Scores</string>
+    <string name="winner">Winner: %s</string>
+
+    <string name="sensor_connected">Sensor connected successfully!</string>
+    <string name="sensor_failed">Failed to connect to sensor.</string>
+    <string name="disconnected_from_sensor">Disconnected from sensor</string>
+    <string name="permissions_denied">Permissions denied. Please enable Bluetooth and location permissions.</string>
+    <string name="frame_image">Frame Image</string>
+    <string name="sensor_connection">Sensor connection</string>
+    <string name="fightsmart_logo">FightSmart Logo</string>
+    <string name="trying_to_connect">Trying to connect...</string>
+    <string name="bluetooth_disabled">Bluetooth is disabled.</string>
+
+    <string name="language">Language</string>
+    <string name="theme">Theme</string>
+    <string name="dark_mode">Dark Mode</string>
+    <string name="calibrate_sensor">Calibrate Sensor</string>
+    <string name="quick_game">Quick Game</string>
+    <string name="training">Training</string>
+    <string name="leaderboard">Leaderboard</string>
+    <string name="connect_sensor">Connect Sensor</string>
+    <string name="settings">Settings</string>
+
+    <string name="app_name">Fight Smart</string>
+    <string name="game_setup">Game Setup</string>
+    <string name="back">Back</string>
+    <string name="number_of_players">Number of Players: %d</string>
+    <string name="player_number">Player %d: %s</string>
+    <string name="name">Name</string>
+    <string name="game_mode">Game Mode</string>
+    <string name="single">Single</string>
+    <string name="best_of_3">Best of 3</string>
+    <string name="best_of_5">Best of 5</string>
+    <string name="move_types">Move Types</string>
+    <string name="punch">Punch</string>
+    <string name="hook">Hook</string>
+    <string name="front_kick">Front Kick</string>
+    <string name="leg_kick">Leg Kick</string>
+    <string name="rib_kick">Rib Kick</string>
+    <string name="head_kick">Head Kick</string>
+    <string name="start_game">Start Game</string>
+
+    <string name="error_duplicate_names">The player names need to be different.</string>
+    <string name="error_generic">An error occurred. Please try again.</string>
+
+</resources>

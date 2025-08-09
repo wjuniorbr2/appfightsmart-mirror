@@ -1,0 +1,25 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme for light mode -->
+    <style name="Theme.AppFightSmart" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primaryVariant</item>
+        <item name="colorOnPrimary">@color/onPrimary</item>
+        <item name="colorSecondary">@color/secondary</item>
+        <item name="colorSecondaryVariant">@color/secondaryVariant</item>
+        <item name="colorOnSecondary">@color/onSecondary</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <!-- Base application theme for dark mode -->
+    <style name="Theme.AppFightSmart.Dark" parent="android:Theme.Material.NoActionBar">
+        <item name="colorPrimary">@color/primaryDark</item>
+        <item name="colorPrimaryVariant">@color/primaryVariantDark</item>
+        <item name="colorOnPrimary">@color/onPrimaryDark</item>
+        <item name="colorSecondary">@color/secondaryDark</item>
+        <item name="colorSecondaryVariant">@color/secondaryVariantDark</item>
+        <item name="colorOnSecondary">@color/onSecondaryDark</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

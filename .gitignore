@@ -1,0 +1,23 @@
+# Android/Gradle
+.gradle/
+**/build/
+**/captures/
+local.properties
+.gradle/
+.gradle/*
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Keystores
+*.jks
+*.keystore
+
+# Logs
+*.log
+
+# Generated
+app/**/generated/
+app/**/intermediates/

@@ -1,0 +1,52 @@
+<resources>
+
+    <string name="number_of_moves">Número de Movimentos: %d</string>
+    <string name="stop_the_bag">Pare a saco</string>
+    <string name="force">Força: %.2f</string>
+    <string name="next_move">Próximo Movimento</string>
+    <string name="final_scores">Pontuação Final</string>
+    <string name="winner">Vencedor: %s</string>
+
+    <string name="sensor_connected">Sensor conectado com sucesso!</string>
+    <string name="sensor_failed">Falha ao conectar ao sensor.</string>
+    <string name="disconnected_from_sensor">Desconectado do sensor</string>
+    <string name="permissions_denied">Permissões negadas. Por favor, habilite as permissões de Bluetooth e localização.</string>
+    <string name="frame_image">Imagem do Frame</string>
+    <string name="sensor_connection">Conexão do Sensor</string>
+    <string name="fightsmart_logo">Logo do FightSmart</string>
+    <string name="trying_to_connect">Tentando conectar...</string>
+    <string name="bluetooth_disabled">Bluetooth está desativado.</string>
+
+    <string name="language">Idioma</string>
+    <string name="theme">Tema</string>
+    <string name="dark_mode">Modo Escuro</string>
+    <string name="calibrate_sensor">Calibrar Sensor</string>
+    <string name="quick_game">Jogo Rápido</string>
+    <string name="training">Treino</string>
+    <string name="leaderboard">Classificação</string>
+    <string name="connect_sensor">Conectar Sensor</string>
+    <string name="settings">Configurações</string>
+
+    <string name="app_name">Fight Smart</string>
+    <string name="game_setup">Configuração do Jogo</string>
+    <string name="back">Voltar</string>
+    <string name="number_of_players">Número de Jogadores: %d</string>
+    <string name="player_number">Jogador %d:</string>
+    <string name="name">Nome</string>
+    <string name="game_mode">Modo de Jogo</string>
+    <string name="single">Um golpe</string>
+    <string name="best_of_3">Melhor de 3</string>
+    <string name="best_of_5">Melhor de 5</string>
+    <string name="move_types">Tipos de Movimento</string>
+    <string name="punch">Soco</string>
+    <string name="hook">Cruzado</string>
+    <string name="front_kick">Chute Frontal</string>
+    <string name="leg_kick">Chute na Perna</string>
+    <string name="rib_kick">Chute nas Costelas</string>
+    <string name="head_kick">Chute na Cabeça</string>
+    <string name="start_game">Iniciar Jogo</string>
+
+    <string name="error_duplicate_names">Os nomes dos jogadores precisam ser diferentes.</string>
+    <string name="error_generic">Ocorreu um erro. Por favor, tente novamente.</string>
+
+</resources>
