@@ -109,7 +109,7 @@ fun GameScreen(
                     val azRaw = toShortLE(data[6], data[7]).toInt()
                     // scale to g: raw/32768 * 16g
                     val axG = axRaw / 32768f * 16f
-                    val ayG = ayRaw / 32768f * 16f
+                    val ayG = -ayRaw / 32768f * 16f
                     val azG = azRaw / 32768f * 16f
                     processForceSample(axG, ayG, azG)
                 } else {
