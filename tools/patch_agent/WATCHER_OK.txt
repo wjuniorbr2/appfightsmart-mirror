@@ -1,0 +1,6 @@
+This file was added by a test mailbox patch.
+If you can see this in Git history, the watcher and apply_patch.py are working.
+
+OK markers:
+- watcher detected .patch, ran apply_patch.py
+- apply_patch.py used git am and moved patch to patches/applied
