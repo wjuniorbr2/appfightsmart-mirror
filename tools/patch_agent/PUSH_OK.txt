@@ -1,0 +1,4 @@
+This file was added to test the auto-push after a successful patch apply.
+If you see this commit on GitHub, auto-push is working.
+
+OK: watcher -> apply_patch.py -> commit -> auto-push to 'public'.
