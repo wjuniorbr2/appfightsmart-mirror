@@ -154,7 +154,7 @@ fun SensorOverlay(
     val bagWidth: Dp = 92.dp
     val bagHeight: Dp = 168.dp
     val topMarginPx = 10f
-    var attachOffsetIntoSpritePx = 60f   // tuned shorter to meet bag top better
+    var attachOffsetIntoSpritePx = 60f // tuned shorter to meet bag top better
 
     Box(
         modifier = Modifier
@@ -168,15 +168,15 @@ fun SensorOverlay(
         val bagTopY = topMarginPx + tyArc + tyDepth
 
         // Bag sprite ring is slightly right of visual center; nudge chain to meet the ring
-        val ringCenterOffsetPx = 0f
+        val ringCenterOffsetPx = 5f  // << tweak: positive shifts chain-bottom right to meet bag
 
         // CHAIN (anchored at ceiling center; true length & angle)
         val dx = bagTopX + ringCenterOffsetPx
         val dy = (bagTopY + attachOffsetIntoSpritePx) - anchorY
         val ropeLenPx = sqrt(dx * dx + dy * dy)
+
         if (ropeLenPx > 2f) {
             val angleDeg = Math.toDegrees(atan2(dx.toDouble(), dy.toDouble())).toFloat()
-
             Image(
                 painter = painterResource(id = R.drawable.metal_chain),
                 contentDescription = "Chain",
@@ -184,7 +184,7 @@ fun SensorOverlay(
                 modifier = Modifier
                     .width(14.dp)
                     .height(ropeLenPx.dp)
-                    // Top of chain glued at ceiling center (top of overlay)
+                    // Top of chain glued at overlay's top center
                     .offset(x = (-7).dp, y = anchorY.dp)
                     .graphicsLayer {
                         rotationZ = angleDeg
