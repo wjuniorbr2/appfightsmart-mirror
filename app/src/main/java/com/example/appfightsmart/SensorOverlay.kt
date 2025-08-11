@@ -154,7 +154,7 @@ fun SensorOverlay(
     val bagWidth: Dp = 92.dp
     val bagHeight: Dp = 168.dp
     val topMarginPx = 10f
-    var attachOffsetIntoSpritePx = 74f   // tuned shorter to meet bag top better
+    var attachOffsetIntoSpritePx = 60f   // tuned shorter to meet bag top better
 
     Box(
         modifier = Modifier
@@ -168,7 +168,7 @@ fun SensorOverlay(
         val bagTopY = topMarginPx + tyArc + tyDepth
 
         // Bag sprite ring is slightly right of visual center; nudge chain to meet the ring
-        val ringCenterOffsetPx = 5f
+        val ringCenterOffsetPx = 0f
 
         // CHAIN (anchored at ceiling center; true length & angle)
         val dx = bagTopX + ringCenterOffsetPx
