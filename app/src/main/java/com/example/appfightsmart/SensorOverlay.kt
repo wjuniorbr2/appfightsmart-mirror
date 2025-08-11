@@ -119,13 +119,13 @@ fun SensorOverlay(
     val yawWithOffset = yawRad + offRad
 
     val sideDeg =
-        (roll * cos(yawWithOffset.toDouble()).toFloat() +
-         pitch * sin(yawWithOffset.toDouble()).toFloat())
+        -(roll * cos(yawWithOffset.toDouble()).toFloat() +
+                pitch * sin(yawWithOffset.toDouble()).toFloat())
 
-    // forward = toward camera (bigger & rise)
+// forward = toward camera (bigger & rise)
     val depthDeg =
-        -(pitch * cos(yawWithOffset.toDouble()).toFloat() -
-          roll  * sin(yawWithOffset.toDouble()).toFloat())
+        (pitch * cos(yawWithOffset.toDouble()).toFloat() -
+                roll  * sin(yawWithOffset.toDouble()).toFloat())
 
     // Smooth the displayed tilt for silky swing
     val rawTilt = (sideDeg * 1.2f).coerceIn(-30f, 30f)
@@ -142,7 +142,7 @@ fun SensorOverlay(
     val bagWidth: Dp = 92.dp
     val bagHeight: Dp = 168.dp
     val topMarginPx = 10f
-    var attachOffsetIntoSpritePx = 90f   // tweak 80→90→100 to visually lock chain to bag
+    var attachOffsetIntoSpritePx = 74f   // tuned shorter to better meet bag top
 
     Box(
         modifier = Modifier
