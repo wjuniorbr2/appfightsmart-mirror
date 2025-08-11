@@ -155,15 +155,12 @@ fun SensorOverlay(
         val bagTopX = tx
         val bagTopY = topMarginPx + tyArc + tyDepth
 
-        // CHAIN (stretched & rotated)
-        val ropeLenPx = (bagTopY + attachOffsetIntoSpritePx) - anchorY
+        // CHAIN (true distance + correct rotation)
+        val dx = bagTopX
+        val dy = (bagTopY + attachOffsetIntoSpritePx) - anchorY
+        val ropeLenPx = sqrt(dx * dx + dy * dy)
         if (ropeLenPx > 2f) {
-            val angleDeg = Math.toDegrees(
-                atan2(
-                    bagTopX.toDouble(),
-                    (bagTopY + attachOffsetIntoSpritePx - anchorY).toDouble()
-                )
-            ).toFloat()
+            val angleDeg = Math.toDegrees(atan2(dx.toDouble(), dy.toDouble())).toFloat()
 
             Image(
                 painter = painterResource(id = R.drawable.metal_chain),
