@@ -142,7 +142,7 @@ fun SensorOverlay(
     val bagWidth: Dp = 92.dp
     val bagHeight: Dp = 168.dp
     val topMarginPx = 10f
-    var attachOffsetIntoSpritePx = 74f   // tuned shorter to better meet bag top
+    var attachOffsetIntoSpritePx = 60f   // tuned shorter to better meet bag top
 
     Box(
         modifier = Modifier
@@ -155,11 +155,26 @@ fun SensorOverlay(
         val bagTopX = tx
         val bagTopY = topMarginPx + tyArc + tyDepth
 
-        // CHAIN (true distance + correct rotation)
-        val dx = bagTopX
+        // --- Chain horizontal bias: auto-calibrate once when nearly vertical ---
+        var chainXBias by remember { mutableStateOf(0f) }
+        var biasCalibrated by remember { mutableStateOf(false) }
+
+// When the bag is nearly vertical and not moving much, lock the bias
+        if (!biasCalibrated) {
+            if (abs(tiltSmoothed) < 2f && abs(depthDeg) < 2f && accCount > 10) {
+                // Make the chain vertical when the bag is visually centered
+                chainXBias = -bagTopX
+                biasCalibrated = true
+            }
+        }
+
+        // CHAIN (anchored at ceiling center; true length & angle with small horizontal bias)
+
+        // CHAIN (anchored at ceiling center; true length & angle)
+        val dx = bagTopX + chainXBias
         val dy = (bagTopY + attachOffsetIntoSpritePx) - anchorY
-        val ropeLenPx = sqrt(dx * dx + dy * dy)
-        if (ropeLenPx > 2f) {
+        val ropeLenDp = sqrt(dx * dx + dy * dy)
+        if (ropeLenDp > 2f) {
             val angleDeg = Math.toDegrees(atan2(dx.toDouble(), dy.toDouble())).toFloat()
 
             Image(
@@ -168,11 +183,12 @@ fun SensorOverlay(
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier
                     .width(14.dp)
-                    .height(ropeLenPx.dp)
-                    .offset(x = bagTopX.dp - 7.dp, y = anchorY.dp)
+                    .height(ropeLenDp.dp)
+                    // Top of chain stays glued at ceiling center (top of the overlay)
+                    .offset(x = (-7).dp, y = anchorY.dp)
                     .graphicsLayer {
                         rotationZ = angleDeg
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f) // rotate around top-center
                         alpha = 0.98f
                     }
             )
