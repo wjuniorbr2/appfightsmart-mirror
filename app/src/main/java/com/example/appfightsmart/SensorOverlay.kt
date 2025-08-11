@@ -65,12 +65,14 @@ fun SensorOverlay(
                             val axG = axRaw / 32768f * 16f
                             val ayG = ayRaw / 32768f * 16f
                             val azG = azRaw / 32768f * 16f
+                            // gravity/acc smoothing
                             gx = aGrav * gx + (1 - aGrav) * axG
                             gy = aGrav * gy + (1 - aGrav) * ayG
                             gz = aGrav * gz + (1 - aGrav) * azG
                             ax = aAcc  * ax + (1 - aAcc)  * axG
                             ay = aAcc  * ay + (1 - aAcc)  * ayG
                             if (!haveAngles) {
+                                // coarse pitch/roll from gravity until ANG arrives
                                 val pitchEst = Math.toDegrees(atan2((-gx).toDouble(), sqrt((gy*gy + gz*gz).toDouble()))).toFloat()
                                 val rollEst  = Math.toDegrees(atan2(gy.toDouble(), gz.toDouble())).toFloat()
                                 pitch = aAng * pitch + (1 - aAng) * pitchEst
@@ -113,16 +115,26 @@ fun SensorOverlay(
         onDispose { bluetoothManager.removeDataListener(listener) }
     }
 
+    // If we only see ACC frames after startup, retry enabling ANG+MAG once.
+    var requestedAnglesOnce by remember { mutableStateOf(false) }
+    LaunchedEffect(accCount, angCount, magCount) {
+        if (!requestedAnglesOnce && accCount > 30 && angCount == 0 && magCount == 0) {
+            requestedAnglesOnce = true
+            try { bluetoothManager.enableAnglesAndMagAt100Hz() } catch (_: Throwable) {}
+        }
+    }
+
     // --------- Visual mapping (calm) ----------
     val yawRad = Math.toRadians(yaw.toDouble()).toFloat()
     val offRad = Math.toRadians(headingOffsetDeg.toDouble()).toFloat()
     val yawWithOffset = yawRad + offRad
 
+    // Side: flip sign so left tilt → left movement
     val sideDeg =
         -(roll * cos(yawWithOffset.toDouble()).toFloat() +
                 pitch * sin(yawWithOffset.toDouble()).toFloat())
 
-// forward = toward camera (bigger & rise)
+    // Depth: forward tilt → toward camera (bigger & rise)
     val depthDeg =
         (pitch * cos(yawWithOffset.toDouble()).toFloat() -
                 roll  * sin(yawWithOffset.toDouble()).toFloat())
@@ -142,7 +154,7 @@ fun SensorOverlay(
     val bagWidth: Dp = 92.dp
     val bagHeight: Dp = 168.dp
     val topMarginPx = 10f
-    var attachOffsetIntoSpritePx = 60f   // tuned shorter to better meet bag top
+    var attachOffsetIntoSpritePx = 74f   // tuned shorter to meet bag top better
 
     Box(
         modifier = Modifier
@@ -155,26 +167,14 @@ fun SensorOverlay(
         val bagTopX = tx
         val bagTopY = topMarginPx + tyArc + tyDepth
 
-        // --- Chain horizontal bias: auto-calibrate once when nearly vertical ---
-        var chainXBias by remember { mutableStateOf(0f) }
-        var biasCalibrated by remember { mutableStateOf(false) }
-
-// When the bag is nearly vertical and not moving much, lock the bias
-        if (!biasCalibrated) {
-            if (abs(tiltSmoothed) < 2f && abs(depthDeg) < 2f && accCount > 10) {
-                // Make the chain vertical when the bag is visually centered
-                chainXBias = -bagTopX
-                biasCalibrated = true
-            }
-        }
-
-        // CHAIN (anchored at ceiling center; true length & angle with small horizontal bias)
+        // Bag sprite ring is slightly right of visual center; nudge chain to meet the ring
+        val ringCenterOffsetPx = 5f
 
         // CHAIN (anchored at ceiling center; true length & angle)
-        val dx = bagTopX + chainXBias
+        val dx = bagTopX + ringCenterOffsetPx
         val dy = (bagTopY + attachOffsetIntoSpritePx) - anchorY
-        val ropeLenDp = sqrt(dx * dx + dy * dy)
-        if (ropeLenDp > 2f) {
+        val ropeLenPx = sqrt(dx * dx + dy * dy)
+        if (ropeLenPx > 2f) {
             val angleDeg = Math.toDegrees(atan2(dx.toDouble(), dy.toDouble())).toFloat()
 
             Image(
@@ -183,8 +183,8 @@ fun SensorOverlay(
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier
                     .width(14.dp)
-                    .height(ropeLenDp.dp)
-                    // Top of chain stays glued at ceiling center (top of the overlay)
+                    .height(ropeLenPx.dp)
+                    // Top of chain glued at ceiling center (top of overlay)
                     .offset(x = (-7).dp, y = anchorY.dp)
                     .graphicsLayer {
                         rotationZ = angleDeg
@@ -217,7 +217,9 @@ fun SensorOverlay(
             color = Color.White,
             fontSize = 10.sp,
             style = TextStyle(),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 4.dp)
         )
     }
 }
