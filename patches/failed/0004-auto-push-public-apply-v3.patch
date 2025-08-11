@@ -1,0 +1,64 @@
+diff --git a/tools/patch_agent/apply_patch.py b/tools/patch_agent/apply_patch.py
+--- a/tools/patch_agent/apply_patch.py
++++ b/tools/patch_agent/apply_patch.py
+@@ -1,7 +1,7 @@
+-import sys
+-import subprocess
+-import shutil
+-from pathlib import Path
++import sys
++import subprocess
++import shutil
++from pathlib import Path
+ 
+ def run(cmd, cwd=None, check=True):
+     print(">>", " ".join(cmd))
+@@ -34,6 +34,38 @@
+         return False
+ 
++def has_remote(repo: Path, name: str) -> bool:
++    """Return True if a Git remote with the given name exists."""
++    try:
++        p = subprocess.run(["git", "remote"], cwd=repo, capture_output=True, text=True, check=True)
++        names = [r.strip() for r in p.stdout.splitlines()]
++        return name in names
++    except Exception:
++        return False
++
++def current_branch(repo: Path) -> str:
++    """Return current branch name, defaulting to 'main' if undetectable."""
++    try:
++        p = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, capture_output=True, text=True, check=True)
++        b = p.stdout.strip()
++        return b if b else "main"
++    except Exception:
++        return "main"
++
++def push_if_remote(repo: Path, remote: str = "public") -> None:
++    """If the given remote exists, push the current HEAD to remote/<branch>."""
++    if not has_remote(repo, remote):
++        print(f"[PUSH] Remote '{remote}' not found; skipping auto-push.")
++        return
++    branch = current_branch(repo)
++    print(f"[PUSH] Pushing HEAD to {remote}/{branch} ...")
++    p = subprocess.run(["git", "push", remote, f"HEAD:{branch}"], cwd=repo, capture_output=True, text=True)
++    if p.stdout:
++        print(p.stdout, end="")
++    if p.stderr:
++        print(p.stderr, file=sys.stderr, end="")
++    print(f"[PUSH] Push to {remote} completed.")
++
+ def unique_target(path: Path) -> Path:
+     """Return a non-clobbering path like 'name (1).ext' if needed."""
+     if not path.exists():
+         return path
+@@ -106,6 +138,8 @@
+     dest_dir.mkdir(parents=True, exist_ok=True)
+     dest = unique_target(dest_dir / patch_file.name)
+     shutil.move(str(patch_file), str(dest))
++    if ok:
++        push_if_remote(repo, "public")
+     sys.exit(0 if ok else 1)
+ 
+ if __name__ == "__main__":
+     main()

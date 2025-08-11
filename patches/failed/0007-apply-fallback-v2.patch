@@ -1,0 +1,27 @@
+diff --git a/tools/patch_agent/apply_patch.py b/tools/patch_agent/apply_patch.py
+--- a/tools/patch_agent/apply_patch.py
++++ b/tools/patch_agent/apply_patch.py
+@@ -87,9 +87,18 @@ def apply_one(repo: Path, patch_path: Path) -> bool:
+         if is_mailbox_patch(patch_path):
+             # mailbox patch -> use git am; creates the commit(s)
+             run(["git", "am", "--3way", str(patch_path)], cwd=repo)
+         else:
+-            # raw diff -> apply to index then commit a single snapshot
+-            run(["git", "apply", "--index", "--reject", "--whitespace=nowarn", str(patch_path)], cwd=repo)
+-            # Commit directly with filename (without extension) as message
++            # raw diff -> first try to apply against the index
++            try:
++                run(["git", "apply", "--index", "--reject", "--whitespace=nowarn", str(patch_path)], cwd=repo)
++            except Exception:
++                print("[INFO] Index apply failed; retrying without --index ...")
++                # Fall back to applying to the working tree (more tolerant), then stage and commit
++                run(["git", "apply", "--reject", "--whitespace=nowarn", str(patch_path)], cwd=repo)
++                # Stage all modifications so the commit below succeeds
++                run(["git", "add", "-A"], cwd=repo)
++
++            # Commit directly with filename (without extension) as message
+             run(["git", "commit", "-m", patch_path.stem], cwd=repo)
+         print(f"[OK] Applied patch: {patch_path.name}")
+         return True
+     except Exception as e:
+         print(f"[FAIL] Could not apply patch: {e}")

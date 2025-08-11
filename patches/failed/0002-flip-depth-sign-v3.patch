@@ -1,0 +1,18 @@
+diff --git a/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt b/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
+--- a/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
++++ b/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
+@@ -129,11 +129,12 @@ fun SensorOverlay(
++    // Flip depth sign so forward/back matches physical motion
+     val rawTilt = (sideDeg * 1.2f).coerceIn(-30f, 30f)
+     var tiltSmoothed by remember { mutableStateOf(0f) }
+     tiltSmoothed = 0.80f * tiltSmoothed + 0.20f * rawTilt
+     val tx      = sin(Math.toRadians(tiltSmoothed.toDouble())).toFloat() * 24f
+     val tyArc   = (1f - cos(Math.toRadians(tiltSmoothed.toDouble())).toFloat()) * 7f
+-    val scaleNear = (1f + (depthDeg / 30f) * 0.18f).coerceIn(0.88f, 1.14f)
+-    val tyDepth   = (depthDeg / 30f) * -10f
++    val scaleNear = (1f + ((-depthDeg) / 30f) * 0.18f).coerceIn(0.88f, 1.14f)
++    val tyDepth   = ((-depthDeg) / 30f) * -10f
+     // Layout
+     val overlaySize: Dp = 160.dp
+     val bagWidth: Dp = 92.dp
+     val bagHeight: Dp = 168.dp

@@ -1,0 +1,37 @@
+From 9a2b7d5c0e2a4b1c7f9d3e8a6b5c4d3e2f1a0b9c Mon Sep 17 00:00:00 2001
+From: AppFightSmart Patch Assistant patch@appfightsmart.local
+Date: Sun, 10 Aug 2025 19:05:00 +0000
+Subject: [PATCH] SensorOverlay: flip forward/back (depth) sign so bag depth
+matches sensor
+
+.../java/com/example/appfightsmart/SensorOverlay.kt | 4 ++--
+1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt b/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
+index 1066442..1066443 100644
+--- a/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
++++ b/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
+@@ -130,12 +130,12 @@ fun SensorOverlay(
+val rawTilt = (sideDeg * 1.2f).coerceIn(-30f, 30f)
+var tiltSmoothed by remember { mutableStateOf(0f) }
+tiltSmoothed = 0.80f * tiltSmoothed + 0.20f * rawTilt
+cpp
+Copy
+Edit
+ val tx      = sin(Math.toRadians(tiltSmoothed.toDouble())).toFloat() * 24f
+ val tyArc   = (1f - cos(Math.toRadians(tiltSmoothed.toDouble())).toFloat()) * 7f
+val scaleNear = (1f + (depthDeg / 30f) * 0.18f).coerceIn(0.88f, 1.14f)
+
+val tyDepth = (depthDeg / 30f) * -10f
+
+// Flip depth sign so forward/backward on screen matches physical motion
+
+val scaleNear = (1f + ((-depthDeg) / 30f) * 0.18f).coerceIn(0.88f, 1.14f)
+
+val tyDepth = ((-depthDeg) / 30f) * -10f
+
+// Layout
+val overlaySize: Dp = 160.dp
+val bagWidth: Dp = 92.dp
+--
+2.45.0

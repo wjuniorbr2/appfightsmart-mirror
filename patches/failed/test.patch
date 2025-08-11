@@ -1,0 +1,20 @@
+From 2a0bc7f6f2b3b2b16b0a0a4f6df8e5b3c83e6cf6 Mon Sep 17 00:00:00 2001
+From: AppFightSmart Patch Assistant <patch@appfightsmart.local>
+Date: Sat, 9 Aug 2025 17:15:00 +0000
+Subject: [PATCH] Flip pitch axis sign for correct forward/back motion
+
+---
+ app/src/main/java/com/example/appfightsmart/GameScreen.kt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/app/src/main/java/com/example/appfightsmart/GameScreen.kt b/app/src/main/java/com/example/appfightsmart/GameScreen.kt
+index d720b76..c6ff2d1 100644
+--- a/app/src/main/java/com/example/appfightsmart/GameScreen.kt
++++ b/app/src/main/java/com/example/appfightsmart/GameScreen.kt
+@@
+-                                    val ayG = ayRaw / 32768f * 16f
++                                    val ayG = -ayRaw / 32768f * 16f
+                                     val azG = azRaw / 32768f * 16f
+                                     processForceSample(axG, ayG, azG)
+-- 
+2.45.0

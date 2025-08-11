@@ -1,0 +1,23 @@
+Folder PATH listing for volume 4T Mammoth
+Volume serial number is 6CDC-AB90
+D:.
+|   folder_structure.txt
+|   
++---applied
++---failed
+|       20250809-flip-pitch-axis (1).patch
+|       20250809-flip-pitch-axis (2).patch
+|       20250809-flip-pitch-axis (3).patch
+|       20250809-flip-pitch-axis-diff.patch
+|       20250809-flip-pitch-axis-format (1).patch
+|       20250809-flip-pitch-axis-format.patch
+|       20250809-flip-pitch-axis-sanitized.patch
+|       20250809-flip-pitch-axis-smoke-format.patch
+|       20250809-flip-pitch-axis.patch
+|       test (1).patch
+|       test.patch
+|       
++---incoming
+|       20250809-flip-pitch-axis.patch
+|       
+\---rejected

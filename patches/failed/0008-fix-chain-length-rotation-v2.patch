@@ -1,0 +1,30 @@
+diff --git a/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt b/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
+--- a/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
++++ b/app/src/main/java/com/example/appfightsmart/SensorOverlay.kt
+@@ -1,12 +1,12 @@
+@@
+-        // CHAIN (stretched & rotated)
+-        val ropeLenPx = (bagTopY + attachOffsetIntoSpritePx) - anchorY
+-        if (ropeLenPx > 2f) {
+-            val angleDeg = Math.toDegrees(
+-                atan2(
+-                    bagTopX.toDouble(),
+-                    (bagTopY + attachOffsetIntoSpritePx - anchorY).toDouble()
+-                )
+-            ).toFloat()
++        // CHAIN (true distance + correct rotation)
++        val dx = bagTopX
++        val dy = (bagTopY + attachOffsetIntoSpritePx) - anchorY
++        val ropeLenPx = sqrt(dx * dx + dy * dy)
++        if (ropeLenPx > 2f) {
++            val angleDeg = Math.toDegrees(atan2(dx.toDouble(), dy.toDouble())).toFloat()
+@@
+                     .width(14.dp)
+                     .height(ropeLenPx.dp)
+-                    .offset(x = bagTopX.dp - 7.dp, y = anchorY.dp)
++                    .offset(x = bagTopX.dp - 7.dp, y = anchorY.dp)
+                     .graphicsLayer {
+                         rotationZ = angleDeg
+                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                         alpha = 0.98f
+                     }

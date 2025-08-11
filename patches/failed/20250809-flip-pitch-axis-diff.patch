@@ -1,0 +1,8 @@
+diff --git a/app/src/main/java/com/example/appfightsmart/GameScreen.kt b/app/src/main/java/com/example/appfightsmart/GameScreen.kt
+--- a/app/src/main/java/com/example/appfightsmart/GameScreen.kt
++++ b/app/src/main/java/com/example/appfightsmart/GameScreen.kt
+@@
+-                                    val ayG = ayRaw / 32768f * 16f
++                                    val ayG = -ayRaw / 32768f * 16f
+                                     val azG = azRaw / 32768f * 16f
+                                     processForceSample(axG, ayG, azG)

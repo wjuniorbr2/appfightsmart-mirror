@@ -1,0 +1,68 @@
+diff --git a/tools/patch_agent/apply_patch.py b/tools/patch_agent/apply_patch.py
+--- a/tools/patch_agent/apply_patch.py
++++ b/tools/patch_agent/apply_patch.py
+@@ -1,7 +1,7 @@
+-import sys
+-import subprocess
+-import shutil
+-from pathlib import Path
++import sys
++import subprocess
++import shutil
++from pathlib import Path
+@@ -23,6 +23,7 @@
+         return Path(p.stdout.strip())
+     except Exception:
+         # Fallback: walk up until .git is found
+         cur = start
+         for _ in range(6):
+@@ -40,6 +41,40 @@
+         return first.startswith(b"From ")
+     except Exception:
+         return False
++
++def has_remote(repo: Path, name: str) -> bool:
++    """Return True if a Git remote with the given name exists."""
++    try:
++        p = subprocess.run(["git", "remote"], cwd=repo, capture_output=True, text=True, check=True)
++        names = [r.strip() for r in p.stdout.splitlines()]
++        return name in names
++    except Exception:
++        return False
++
++def current_branch(repo: Path) -> str:
++    """Return current branch name, defaulting to 'main' if undetectable."""
++    try:
++        p = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, capture_output=True, text=True, check=True)
++        b = p.stdout.strip()
++        return b if b else "main"
++    except Exception:
++        return "main"
++
++def push_if_remote(repo: Path, remote: str = "public") -> None:
++    """If the given remote exists, push the current HEAD to remote/<branch>."""
++    if not has_remote(repo, remote):
++        print(f"[PUSH] Remote '{remote}' not found; skipping auto-push.")
++        return
++    branch = current_branch(repo)
++    print(f"[PUSH] Pushing HEAD to {remote}/{branch} ...")
++    try:
++        # Use HEAD:branch to avoid detached head weirdness
++        p = subprocess.run(["git", "push", remote, f"HEAD:{branch}"], cwd=repo, capture_output=True, text=True)
++        if p.stdout:
++            print(p.stdout, end="")
++        if p.stderr:
++            print(p.stderr, file=sys.stderr, end="")
++        print(f"[PUSH] Push to {remote} completed.")
++    except Exception as e:
++        print(f"[PUSH] Push error: {e}")
+@@ -100,6 +135,8 @@
+     dest_dir.mkdir(parents=True, exist_ok=True)
+     dest = unique_target(dest_dir / patch_file.name)
+     shutil.move(str(patch_file), str(dest))
++    if ok:
++        push_if_remote(repo, "public")
+     sys.exit(0 if ok else 1)
+ 
+ if __name__ == "__main__":
+     main()
