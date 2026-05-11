@@ -27,7 +27,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,13 +56,13 @@ fun HomeScreen(
     onSensorConnectionChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    var connectionError by rememberSaveable { mutableStateOf<String?>(null) }
-    var connectionMessage by rememberSaveable { mutableStateOf("") }
-    var showConnectionMessage by rememberSaveable { mutableStateOf(false) }
-    var isConnecting by rememberSaveable { mutableStateOf(false) }
-    var showResult by rememberSaveable { mutableStateOf(false) }
-    var batteryPercent by rememberSaveable { mutableStateOf<Int?>(null) }
-    var signalRssi by rememberSaveable { mutableStateOf<Int?>(null) }
+    var connectionError by remember { mutableStateOf<String?>(null) }
+    var connectionMessage by remember { mutableStateOf("") }
+    var showConnectionMessage by remember { mutableStateOf(false) }
+    var isConnecting by remember { mutableStateOf(false) }
+    var showResult by remember { mutableStateOf(false) }
+    var batteryPercent by remember { mutableStateOf<Int?>(null) }
+    var signalRssi by remember { mutableStateOf<Int?>(null) }
 
     val sensorConnectedMessage = stringResource(R.string.sensor_connected)
     val sensorAlreadyConnected = stringResource(R.string.sensor_already_connected)
