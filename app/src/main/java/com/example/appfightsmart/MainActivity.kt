@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -82,6 +83,7 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                 }
 
                 val isConnectedState = remember { mutableStateOf(false) }
+                val hasTriedInitialSensorConnection = rememberSaveable { mutableStateOf(false) }
 
                 LaunchedEffect(bluetoothManager) {
                     bluetoothManager.addConnectionListener { connected ->
@@ -99,6 +101,7 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
 
                             LaunchedEffect(Unit) {
                                 bluetoothManager.setOnConnectionStateChange { connected ->
+                                    isConnectedState.value = connected
                                     if (connected) {
                                         Log.d("WitBLE", "UI after-connect: scheduling WIT config push")
                                         uiScope.launch {
@@ -110,7 +113,18 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                                 }
                             }
 
-                            HomeScreen(navController, bluetoothManager)
+                            HomeScreen(
+                                navController = navController,
+                                bluetoothManager = bluetoothManager,
+                                sensorConnected = isConnectedState.value,
+                                hasTriedInitialSensorConnection = hasTriedInitialSensorConnection.value,
+                                onInitialSensorConnectionTried = {
+                                    hasTriedInitialSensorConnection.value = true
+                                },
+                                onSensorConnectionChanged = { connected ->
+                                    isConnectedState.value = connected
+                                }
+                            )
                         }
 
                         composable(Screen.GameSetup.route) {
