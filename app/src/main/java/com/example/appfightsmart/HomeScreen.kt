@@ -228,6 +228,10 @@ fun HomeScreen(
                     .size(300.dp)
             )
             ButtonWithDivider(
+                onClick = { navController.navigate(Screen.Calibration.route) },
+                text = "Calibration"
+            )
+            ButtonWithDivider(
                 onClick = { navController.navigate(Screen.GameSetup.route) },
                 text = stringResource(R.string.quick_game)
             )
