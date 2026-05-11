@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -426,7 +427,12 @@ private fun MoveCategoryCard(
             Image(
                 painter = painterResource(id = R.drawable.button),
                 contentDescription = null,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer(
+                        scaleX = 1.12f,
+                        scaleY = 1.45f
+                    ),
                 contentScale = ContentScale.FillBounds
             )
 
