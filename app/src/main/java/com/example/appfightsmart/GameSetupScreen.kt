@@ -26,7 +26,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +51,8 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -73,9 +74,7 @@ import kotlin.math.roundToInt
 
 private enum class MoveCategory { Punch, Kick }
 
-private data class MoveOption(
-    val label: String
-)
+private data class MoveOption(val label: String)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -118,19 +117,13 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
 
     val coroutineScope = rememberCoroutineScope()
 
-    fun hasDuplicateNames(names: List<String>): Boolean {
-        return names.distinct().size != names.size
-    }
+    fun hasDuplicateNames(names: List<String>): Boolean = names.distinct().size != names.size
 
     fun setPlayerCount(newCount: Int) {
         val clampedCount = newCount.coerceIn(1, 10)
         numberOfPlayers = clampedCount
-        while (playerNames.size < clampedCount) {
-            playerNames.add("")
-        }
-        while (playerNames.size > clampedCount) {
-            playerNames.removeAt(playerNames.lastIndex)
-        }
+        while (playerNames.size < clampedCount) playerNames.add("")
+        while (playerNames.size > clampedCount) playerNames.removeAt(playerNames.lastIndex)
         if ((focusedPlayerIndex ?: -1) >= clampedCount) {
             focusedPlayerIndex = null
             focusManager.clearFocus()
@@ -316,22 +309,14 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 rowOptions.forEach { option ->
-                                    FilterChip(
+                                    MoveOptionChip(
+                                        text = option.label,
                                         selected = selectedMoveType == option.label,
-                                        onClick = { selectedMoveType = option.label },
-                                        label = {
-                                            Text(
-                                                text = option.label,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                textAlign = TextAlign.Center
-                                            )
-                                        },
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { selectedMoveType = option.label }
                                     )
                                 }
-                                if (rowOptions.size == 1) {
-                                    Box(modifier = Modifier.weight(1f))
-                                }
+                                if (rowOptions.size == 1) Box(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -463,5 +448,61 @@ private fun MoveCategoryCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MoveOptionChip(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val backgroundBrush = if (selected) {
+        Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF454545),
+                Color(0xFF8B8B8B),
+                Color(0xFFD8D8D8),
+                Color(0xFF777777),
+                Color(0xFF2F2F2F)
+            ),
+            start = Offset.Zero,
+            end = Offset.Infinite
+        )
+    } else {
+        Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF2B2B2B),
+                Color(0xFF515151),
+                Color(0xFF3A3A3A)
+            ),
+            start = Offset.Zero,
+            end = Offset.Infinite
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(backgroundBrush, shape)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) Color.White.copy(alpha = 0.90f) else Color.LightGray.copy(alpha = 0.45f),
+                shape = shape
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
