@@ -1,6 +1,7 @@
 package com.example.appfightsmart
 
 import android.util.Log
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -404,29 +407,72 @@ private fun MoveCategoryCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val shape = RoundedCornerShape(14.dp)
     Card(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
-        )
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
-        Text(
-            text = text,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 14.dp, horizontal = 8.dp),
-            textAlign = TextAlign.Center,
-            fontWeight = FontWeight.Bold,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = if (selected) {
+                            listOf(
+                                Color(0xFFE8E8E8),
+                                Color(0xFF9D9D9D),
+                                Color(0xFF2B2B2B)
+                            )
+                        } else {
+                            listOf(
+                                Color(0xFFD7D7D7),
+                                Color(0xFF777777),
+                                Color(0xFF1F1F1F)
+                            )
+                        },
+                        start = Offset.Zero,
+                        end = Offset.Infinite
+                    ),
+                    shape = shape
+                )
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val stroke = 2.dp.toPx()
+                drawLine(
+                    color = Color.White.copy(alpha = 0.75f),
+                    start = Offset(stroke, stroke),
+                    end = Offset(size.width - stroke, stroke),
+                    strokeWidth = stroke
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.55f),
+                    start = Offset(stroke, stroke),
+                    end = Offset(stroke, size.height - stroke),
+                    strokeWidth = stroke
+                )
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.75f),
+                    start = Offset(stroke, size.height - stroke),
+                    end = Offset(size.width - stroke, size.height - stroke),
+                    strokeWidth = stroke
+                )
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.65f),
+                    start = Offset(size.width - stroke, stroke),
+                    end = Offset(size.width - stroke, size.height - stroke),
+                    strokeWidth = stroke
+                )
             }
-        )
+            Text(
+                text = text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 14.dp, horizontal = 8.dp),
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
     }
 }
