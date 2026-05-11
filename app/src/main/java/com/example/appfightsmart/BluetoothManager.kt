@@ -145,26 +145,49 @@ class BluetoothManager(
         if (startRegister == POWER_REGISTER) {
             val registerValue = (bytes[4].toInt() and 0xFF) or ((bytes[5].toInt() and 0xFF) shl 8)
             val percent = voltageRegisterToBatteryPercent(registerValue)
-            Log.d(TAG, "WIT power register=$registerValue -> battery=$percent%")
+            Log.d(TAG, "WIT power register=$registerValue voltage=${registerValue / 100.0}V -> battery=$percent%")
             batteryListeners.forEach { it(percent) }
             return true
         }
         return false
     }
 
-    private fun voltageRegisterToBatteryPercent(value: Int): Int = when {
-        value > 396 -> 100
-        value >= 393 -> 90
-        value >= 387 -> 75
-        value >= 382 -> 60
-        value >= 379 -> 50
-        value >= 377 -> 40
-        value >= 373 -> 30
-        value >= 370 -> 20
-        value >= 368 -> 15
-        value >= 350 -> 10
-        value >= 340 -> 5
-        else -> 0
+    private fun voltageRegisterToBatteryPercent(value: Int): Int {
+        // WIT returns an approximate Li-ion voltage register, usually voltage * 100.
+        // The original WIT documentation table is very coarse and reports anything above 3.96 V as 100%,
+        // but the official WIT app uses a smoother curve. This curve is calibrated for the replaced 3.7 V
+        // Li-ion battery too, because capacity changed but voltage range remains the same.
+        val curve = listOf(
+            420 to 100,
+            415 to 95,
+            411 to 90,
+            403 to 85,
+            397 to 80,
+            392 to 75,
+            387 to 70,
+            383 to 60,
+            379 to 50,
+            377 to 40,
+            373 to 30,
+            370 to 20,
+            368 to 15,
+            350 to 10,
+            340 to 5,
+            330 to 0
+        )
+
+        if (value >= curve.first().first) return curve.first().second
+        for (i in 0 until curve.lastIndex) {
+            val highVoltage = curve[i].first
+            val highPercent = curve[i].second
+            val lowVoltage = curve[i + 1].first
+            val lowPercent = curve[i + 1].second
+            if (value in lowVoltage..highVoltage) {
+                val ratio = (value - lowVoltage).toFloat() / (highVoltage - lowVoltage).toFloat()
+                return (lowPercent + ratio * (highPercent - lowPercent)).toInt().coerceIn(0, 100)
+            }
+        }
+        return 0
     }
 
     fun isBluetoothEnabled(): Boolean = btAdapter?.isEnabled == true
