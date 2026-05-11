@@ -41,16 +41,22 @@ import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-fun HomeScreen(navController: NavHostController, bluetoothManager: BluetoothManager) {
+fun HomeScreen(
+    navController: NavHostController,
+    bluetoothManager: BluetoothManager,
+    sensorConnected: Boolean,
+    hasTriedInitialSensorConnection: Boolean,
+    onInitialSensorConnectionTried: () -> Unit,
+    onSensorConnectionChanged: (Boolean) -> Unit
+) {
     val context = LocalContext.current
-    var isConnected by rememberSaveable { mutableStateOf(false) }
     var connectionError by rememberSaveable { mutableStateOf<String?>(null) }
     var connectionMessage by rememberSaveable { mutableStateOf("") }
     var showConnectionMessage by rememberSaveable { mutableStateOf(false) }
     var isConnecting by rememberSaveable { mutableStateOf(false) }
     var showResult by rememberSaveable { mutableStateOf(false) }
 
-    val sensorConnected = stringResource(R.string.sensor_connected)
+    val sensorConnectedMessage = stringResource(R.string.sensor_connected)
     val sensorFailed = stringResource(R.string.sensor_failed)
     val disconnectedFromSensor = stringResource(R.string.disconnected_from_sensor)
     val permissionsDenied = stringResource(R.string.permissions_denied)
@@ -59,9 +65,9 @@ fun HomeScreen(navController: NavHostController, bluetoothManager: BluetoothMana
 
     val onConnectionStateChange: (Boolean) -> Unit = { connected ->
         Log.d("MainActivity", "Connection state changed: $connected")
-        isConnected = connected
+        onSensorConnectionChanged(connected)
         isConnecting = false
-        connectionMessage = if (connected) sensorConnected else sensorFailed
+        connectionMessage = if (connected) sensorConnectedMessage else sensorFailed
         connectionError = if (!connected) disconnectedFromSensor else null
         showResult = true
         showConnectionMessage = true
@@ -111,15 +117,17 @@ fun HomeScreen(navController: NavHostController, bluetoothManager: BluetoothMana
         }
     }
 
-    // Auto-connect on first display
-    LaunchedEffect(Unit) {
-        if (bluetoothManager.isBluetoothEnabled()) {
-            isConnecting = true
-            checkAndRequestPermissions()
-        } else {
-            connectionMessage = bluetoothDisabled
-            showResult = true
-            showConnectionMessage = true
+    LaunchedEffect(hasTriedInitialSensorConnection) {
+        if (!hasTriedInitialSensorConnection) {
+            onInitialSensorConnectionTried()
+            if (bluetoothManager.isBluetoothEnabled()) {
+                isConnecting = true
+                checkAndRequestPermissions()
+            } else {
+                connectionMessage = bluetoothDisabled
+                showResult = true
+                showConnectionMessage = true
+            }
         }
     }
 
@@ -157,7 +165,7 @@ fun HomeScreen(navController: NavHostController, bluetoothManager: BluetoothMana
             ) {
                 Canvas(modifier = Modifier.size(10.dp)) {
                     drawCircle(
-                        color = if (isConnected) Color.Green else Color.Red,
+                        color = if (sensorConnected) Color.Green else Color.Red,
                         radius = size.minDimension / 2
                     )
                 }
