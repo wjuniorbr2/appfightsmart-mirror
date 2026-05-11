@@ -7,25 +7,32 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -55,6 +62,8 @@ fun HomeScreen(
     var showConnectionMessage by rememberSaveable { mutableStateOf(false) }
     var isConnecting by rememberSaveable { mutableStateOf(false) }
     var showResult by rememberSaveable { mutableStateOf(false) }
+    var batteryPercent by rememberSaveable { mutableStateOf<Int?>(null) }
+    var signalRssi by rememberSaveable { mutableStateOf<Int?>(null) }
 
     val sensorConnectedMessage = stringResource(R.string.sensor_connected)
     val sensorAlreadyConnected = stringResource(R.string.sensor_already_connected)
@@ -64,12 +73,27 @@ fun HomeScreen(
     val tryingToConnect = stringResource(R.string.trying_to_connect)
     val bluetoothDisabled = stringResource(R.string.bluetooth_disabled)
 
+    DisposableEffect(bluetoothManager) {
+        val batteryListener: (Int?) -> Unit = { batteryPercent = it }
+        val rssiListener: (Int?) -> Unit = { signalRssi = it }
+        bluetoothManager.addBatteryListener(batteryListener)
+        bluetoothManager.addRssiListener(rssiListener)
+        onDispose {
+            bluetoothManager.removeBatteryListener(batteryListener)
+            bluetoothManager.removeRssiListener(rssiListener)
+        }
+    }
+
     val onConnectionStateChange: (Boolean) -> Unit = { connected ->
         Log.d("MainActivity", "Connection state changed: $connected")
         onSensorConnectionChanged(connected)
         isConnecting = false
         connectionMessage = if (connected) sensorConnectedMessage else sensorFailed
         connectionError = if (!connected) disconnectedFromSensor else null
+        if (!connected) {
+            batteryPercent = null
+            signalRssi = null
+        }
         showResult = true
         showConnectionMessage = true
     }
@@ -168,7 +192,12 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
-                Canvas(modifier = Modifier.size(10.dp)) {
+                SensorSignalAndBattery(
+                    connected = sensorConnected,
+                    rssi = signalRssi,
+                    batteryPercent = batteryPercent
+                )
+                Canvas(modifier = Modifier.padding(start = 8.dp).size(10.dp)) {
                     drawCircle(
                         color = if (sensorConnected) Color.Green else Color.Red,
                         radius = size.minDimension / 2
@@ -251,5 +280,88 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SensorSignalAndBattery(
+    connected: Boolean,
+    rssi: Int?,
+    batteryPercent: Int?
+) {
+    val visibleColor = if (connected) Color.White else Color.White.copy(alpha = 0.35f)
+    val battery = batteryPercent?.coerceIn(0, 100)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        SignalBars(rssi = rssi, color = visibleColor)
+        Text(
+            text = if (battery != null) "$battery%" else "--%",
+            fontSize = 10.sp,
+            color = visibleColor
+        )
+        BatteryBar(percent = battery, color = visibleColor)
+    }
+}
+
+@Composable
+private fun SignalBars(rssi: Int?, color: Color) {
+    val activeBars = when {
+        rssi == null -> 0
+        rssi >= -55 -> 4
+        rssi >= -67 -> 3
+        rssi >= -80 -> 2
+        else -> 1
+    }
+
+    Canvas(modifier = Modifier.size(width = 18.dp, height = 14.dp)) {
+        val barWidth = size.width / 7f
+        val gap = barWidth * 0.65f
+        for (i in 0 until 4) {
+            val heightRatio = (i + 1) / 4f
+            val barHeight = size.height * heightRatio
+            val left = i * (barWidth + gap)
+            val top = size.height - barHeight
+            drawRoundRect(
+                color = if (i < activeBars) color else color.copy(alpha = 0.20f),
+                topLeft = Offset(left, top),
+                size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2)
+            )
+        }
+    }
+}
+
+@Composable
+private fun BatteryBar(percent: Int?, color: Color) {
+    val fill = (percent ?: 0) / 100f
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .width(24.dp)
+                .height(10.dp)
+                .border(1.dp, color.copy(alpha = 0.85f), RoundedCornerShape(2.dp))
+                .padding(2.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Transparent)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fill)
+                    .height(6.dp)
+                    .background(color.copy(alpha = if (percent == null) 0.15f else 0.95f), RoundedCornerShape(1.dp))
+            )
+        }
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(5.dp)
+                .background(color.copy(alpha = 0.85f), RoundedCornerShape(1.dp))
+        )
     }
 }
