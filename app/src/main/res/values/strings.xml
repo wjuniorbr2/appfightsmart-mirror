@@ -8,6 +8,7 @@
     <string name="winner">Winner: %s</string>
 
     <string name="sensor_connected">Sensor connected successfully!</string>
+    <string name="sensor_already_connected">Sensor already connected.</string>
     <string name="sensor_failed">Failed to connect to sensor.</string>
     <string name="disconnected_from_sensor">Disconnected from sensor</string>
     <string name="permissions_denied">Permissions denied. Please enable Bluetooth and location permissions.</string>
