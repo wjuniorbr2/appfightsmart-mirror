@@ -127,6 +127,13 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                             )
                         }
 
+                        composable(Screen.Calibration.route) {
+                            CalibrationScreen(
+                                navController = navController,
+                                bluetoothManager = bluetoothManager
+                            )
+                        }
+
                         composable(Screen.GameSetup.route) {
                             GameSetupScreen(
                                 navController,
