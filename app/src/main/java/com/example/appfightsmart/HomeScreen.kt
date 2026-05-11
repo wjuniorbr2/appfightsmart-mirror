@@ -27,8 +27,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -162,7 +161,7 @@ fun HomeScreen(
 
     LaunchedEffect(key1 = showResult) {
         if (showResult) {
-            delay(4000.milliseconds)
+            delay(2000.milliseconds)
             showConnectionMessage = false
             showResult = false
         }
@@ -262,18 +261,20 @@ fun HomeScreen(
         }
         if (showConnectionMessage) {
             Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 292.dp),
+                contentAlignment = Alignment.TopCenter
             ) {
                 Surface(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp),
                     shape = RoundedCornerShape(16.dp),
                     color = Color.Black.copy(alpha = 0.7f)
                 ) {
                     Text(
                         text = connectionMessage,
-                        modifier = Modifier.padding(32.dp),
-                        fontSize = 24.sp,
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp),
+                        fontSize = 22.sp,
                         color = Color.White,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
