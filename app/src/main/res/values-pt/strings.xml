@@ -40,6 +40,9 @@
     <string name="best_of_5">Melhor de 5</string>
     <string name="move_types">Tipos de movimento</string>
     <string name="punch">Soco</string>
+    <string name="kick">Chute</string>
+    <string name="jab">Jab</string>
+    <string name="cross">Direto</string>
     <string name="punch_with_examples">Soco (jab e direto)</string>
     <string name="hook">Cruzado</string>
     <string name="front_kick">Chute frontal</string>
