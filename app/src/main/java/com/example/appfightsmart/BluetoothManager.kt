@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Collections
@@ -29,22 +30,20 @@ class BluetoothManager(
         private const val SCAN_TIMEOUT_MS = 8_000L
         private const val DIRECT_CONNECT_DELAY_MS = 500L
 
-        // Newer WIT layout (from your email)
         private val UUID_SERVICE: UUID = UUID.fromString("0000ffe5-0000-1000-8000-00805f9a34fb")
-        private val UUID_READ: UUID    = UUID.fromString("0000ffe4-0000-1000-8000-00805f9a34fb") // NOTIFY
+        private val UUID_READ: UUID    = UUID.fromString("0000ffe4-0000-1000-8000-00805f9a34fb")
         private val UUID_WRITE: UUID   = UUID.fromString("0000ffe9-0000-1000-8000-00805f9a34fb")
-        // Older WIT layout (fallback)
         private val UUID_SERVICE_OLD: UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9a34fb")
         private val UUID_NOTIFY_OLD:  UUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9a34fb")
         private val UUID_WRITE_OLD:   UUID = UUID.fromString("0000ffe2-0000-1000-8000-00805f9a34fb")
-        // Correct CCCD base UUID ends with ...9b34fb (NOT ...9a34fb)
         private val UUID_CCCD: UUID    = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        private val UUID_BATTERY_SERVICE: UUID = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb")
+        private val UUID_BATTERY_LEVEL: UUID = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb")
     }
 
-    // ---------- WRITE helper ----------
     @Suppress("MemberVisibilityCanBePrivate")
     fun sendWitCommand(cmd: ByteArray) {
-        // Prefer the cached writeChar; fall back to service lookups (new and old)
         val ch = writeChar
             ?: notifyChar?.service?.getCharacteristic(UUID_WRITE)
             ?: gatt?.getService(UUID_SERVICE)?.getCharacteristic(UUID_WRITE)
@@ -58,21 +57,15 @@ class BluetoothManager(
             val ok = gatt?.writeCharacteristic(ch) ?: false
             Log.d(TAG, "write ${cmd.joinToString(" ") { String.format("%02X", it) }} -> $ok")
             Log.d("WITCMD", "FF AA write -> ${cmd.joinToString(" ") { String.format("%02X", it) }} (ok=$ok)")
-
         } catch (e: Exception) {
             Log.e(TAG, "write err: ${e.message}")
         }
     }
 
-    /** One-tap: unlock → rate 100Hz → output mask (acc/gyro/angle/mag/port) → save */
     fun enableAnglesAndMagAt100Hz() {
-        // 1) Unlock
         sendWitCommand(byteArrayOf(0xFF.toByte(), 0xAA.toByte(), 0x69, 0x88.toByte(), 0xB5.toByte()))
-        // 2) Return rate = 100 Hz  (FF AA 03 09 00)
         sendWitCommand(byteArrayOf(0xFF.toByte(), 0xAA.toByte(), 0x03, 0x09, 0x00))
-        // 3) Output content mask (acc+gyro+angle+mag+port). Adjust later if needed.
         sendWitCommand(byteArrayOf(0xFF.toByte(), 0xAA.toByte(), 0x02, 0x3E, 0x00))
-        // 4) Save config
         sendWitCommand(byteArrayOf(0xFF.toByte(), 0xAA.toByte(), 0x00, 0x00, 0x00))
     }
 
@@ -80,7 +73,6 @@ class BluetoothManager(
         onConnectionStateChange = cb
     }
 
-    // === Multi-listener support ===
     private val dataListeners = Collections.synchronizedList(mutableListOf<(ByteArray) -> Unit>())
     fun addDataListener(listener: (ByteArray) -> Unit) { dataListeners.add(listener) }
     fun removeDataListener(listener: (ByteArray) -> Unit) { dataListeners.remove(listener) }
@@ -89,7 +81,14 @@ class BluetoothManager(
     fun addConnectionListener(l: (Boolean) -> Unit) { connListeners.add(l) }
     fun removeConnectionListener(l: (Boolean) -> Unit) { connListeners.remove(l) }
 
-    // === System BT ===
+    private val batteryListeners = Collections.synchronizedList(mutableListOf<(Int?) -> Unit>())
+    fun addBatteryListener(l: (Int?) -> Unit) { batteryListeners.add(l) }
+    fun removeBatteryListener(l: (Int?) -> Unit) { batteryListeners.remove(l) }
+
+    private val rssiListeners = Collections.synchronizedList(mutableListOf<(Int?) -> Unit>())
+    fun addRssiListener(l: (Int?) -> Unit) { rssiListeners.add(l) }
+    fun removeRssiListener(l: (Int?) -> Unit) { rssiListeners.remove(l) }
+
     private val sysBtMgr = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
     private val btAdapter: BluetoothAdapter? = sysBtMgr?.adapter
     private val btScanner get() = btAdapter?.bluetoothLeScanner
@@ -98,14 +97,13 @@ class BluetoothManager(
     private var writeChar: BluetoothGattCharacteristic? = null
     private var scanCallback: ScanCallback? = null
     private var scanTimeoutJob: Job? = null
+    private var rssiJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    // SEARCH ANCHOR 1: CONFIG PUSH FLAG
     @Volatile private var configPushed = false
     @Volatile private var pendingDeviceAddress: String? = null
     @Volatile private var lastConnectUsedScan = false
 
-    // --- Reassembler buffer for 11-byte WIT frames ---
     private val frameBuffer = ArrayList<Byte>(256)
     private fun emitFramesFromBuffer(emit: (ByteArray) -> Unit) {
         var i = 0
@@ -131,18 +129,9 @@ class BluetoothManager(
     fun connectToDevice(deviceAddress: String) {
         try {
             Log.d(TAG, "Connecting to $deviceAddress")
-            if (btAdapter?.isEnabled != true) {
-                Log.e(TAG, "Bluetooth is disabled")
-                return
-            }
-            if (!BluetoothAdapter.checkBluetoothAddress(deviceAddress)) {
-                Log.e(TAG, "Invalid address $deviceAddress")
-                return
-            }
-            if (!hasConnectPerm()) {
-                Log.e(TAG, "No BLUETOOTH_CONNECT")
-                return
-            }
+            if (btAdapter?.isEnabled != true) { Log.e(TAG, "Bluetooth is disabled"); return }
+            if (!BluetoothAdapter.checkBluetoothAddress(deviceAddress)) { Log.e(TAG, "Invalid address $deviceAddress"); return }
+            if (!hasConnectPerm()) { Log.e(TAG, "No BLUETOOTH_CONNECT"); return }
 
             stopScan()
             closeGatt()
@@ -151,9 +140,6 @@ class BluetoothManager(
             frameBuffer.clear()
             btAdapter.cancelDiscovery()
 
-            // A short BLE scan before connect is important for this WIT sensor after a phone reboot.
-            // The official WitMotion app likely does this scan/warmup first, which is why our app
-            // connects more reliably after that app has been opened once.
             if (hasScanPerm() && btScanner != null) {
                 startWarmupScanThenConnect(deviceAddress)
             } else {
@@ -167,10 +153,7 @@ class BluetoothManager(
 
     @SuppressLint("MissingPermission")
     private fun startWarmupScanThenConnect(deviceAddress: String) {
-        if (!hasScanPerm()) {
-            directConnect(deviceAddress)
-            return
-        }
+        if (!hasScanPerm()) { directConnect(deviceAddress); return }
 
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -181,6 +164,7 @@ class BluetoothManager(
                 val foundAddress = result.device?.address ?: return
                 if (foundAddress.equals(deviceAddress, ignoreCase = true)) {
                     Log.d(TAG, "Found WIT sensor in scan: $foundAddress rssi=${result.rssi}")
+                    rssiListeners.forEach { it(result.rssi) }
                     stopScan()
                     connectToScannedDevice(result.device)
                 }
@@ -262,9 +246,13 @@ class BluetoothManager(
         } catch (e: Exception) {
             Log.w(TAG, "closeGatt warning: ${e.message}")
         } finally {
+            rssiJob?.cancel()
+            rssiJob = null
             gatt = null
             notifyChar = null
             writeChar = null
+            batteryListeners.forEach { it(null) }
+            rssiListeners.forEach { it(null) }
         }
     }
 
@@ -316,6 +304,38 @@ class BluetoothManager(
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun readBatteryIfAvailable(g: BluetoothGatt) {
+        if (!hasConnectPerm()) return
+        val batteryChar = g.getService(UUID_BATTERY_SERVICE)?.getCharacteristic(UUID_BATTERY_LEVEL)
+        if (batteryChar == null) {
+            Log.w(TAG, "Battery service not found")
+            batteryListeners.forEach { it(null) }
+            return
+        }
+        try {
+            val ok = g.readCharacteristic(batteryChar)
+            Log.d(TAG, "read battery -> $ok")
+        } catch (e: Exception) {
+            Log.w(TAG, "read battery warning: ${e.message}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startRssiUpdates(g: BluetoothGatt) {
+        rssiJob?.cancel()
+        rssiJob = scope.launch {
+            while (isActive) {
+                try {
+                    if (hasConnectPerm()) g.readRemoteRssi()
+                } catch (e: Exception) {
+                    Log.w(TAG, "read RSSI warning: ${e.message}")
+                }
+                delay(5_000L)
+            }
+        }
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
 
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
@@ -331,12 +351,17 @@ class BluetoothManager(
                 if (hasConnectPerm()) {
                     g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     g.requestMtu(185)
+                    startRssiUpdates(g)
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                rssiJob?.cancel()
+                rssiJob = null
                 scope.launch {
                     withContext(Dispatchers.Main) {
                         onConnectionStateChange(false)
                         connListeners.forEach { it(false) }
+                        batteryListeners.forEach { it(null) }
+                        rssiListeners.forEach { it(null) }
                     }
                 }
                 notifyChar = null
@@ -358,6 +383,7 @@ class BluetoothManager(
             }
             Log.i(TAG, "Services discovered")
             dumpGatt(g)
+            readBatteryIfAvailable(g)
 
             val newSvc = g.getService(UUID_SERVICE)
             val preferredNotify = newSvc?.getCharacteristic(UUID_READ)
@@ -395,10 +421,7 @@ class BluetoothManager(
 
         @SuppressLint("MissingPermission")
         private fun enableNotificationsOrFallback(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
-            if (!hasConnectPerm()) {
-                Log.e(TAG, "No BLUETOOTH_CONNECT")
-                return
-            }
+            if (!hasConnectPerm()) { Log.e(TAG, "No BLUETOOTH_CONNECT"); return }
             val ok = g.setCharacteristicNotification(ch, true)
             Log.d(TAG, "setCharacteristicNotification=$ok for ${ch.uuid}")
 
@@ -407,11 +430,9 @@ class BluetoothManager(
                 cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 val wrote = g.writeDescriptor(cccd)
                 Log.d(TAG, "writeDescriptor(CCCD)=$wrote")
-
-                // SEARCH ANCHOR 2: CALL CONFIG AFTER NOTIFY
                 if (!configPushed) {
                     scope.launch {
-                        delay(250) // let notifications settle
+                        delay(250)
                         enableAnglesAndMagAt100Hz()
                         configPushed = true
                     }
@@ -420,18 +441,16 @@ class BluetoothManager(
                 Log.e(TAG, "CCCD not found on ${ch.uuid}; using short polling fallback")
                 if (ch.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) {
                     scope.launch {
-                        repeat(40) { // ~2s at 50ms
+                        repeat(40) {
                             try { g.readCharacteristic(ch) } catch (_: Exception) {}
                             delay(50)
                         }
-                        // After a brief polling warmup, push config too
                         if (!configPushed) {
                             enableAnglesAndMagAt100Hz()
                             configPushed = true
                         }
                     }
                 } else {
-                    // No READ either; still try to push config once.
                     if (!configPushed) {
                         enableAnglesAndMagAt100Hz()
                         configPushed = true
@@ -440,11 +459,16 @@ class BluetoothManager(
             }
         }
 
+        override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                rssiListeners.forEach { it(rssi) }
+            }
+        }
+
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             Log.d(TAG, "onDescriptorWrite ${descriptor.uuid} status=$status")
         }
 
-        // pre-Android 13
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
             val bytes = ch.value ?: return
             Log.d(TAG, "chunk (pre13) len=${bytes.size}")
@@ -456,7 +480,6 @@ class BluetoothManager(
             dataListeners.forEach { it(bytes) }
         }
 
-        // Android 13+
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
             Log.d(TAG, "chunk len=${value.size}")
             frameBuffer.addAll(value.toList())
@@ -470,6 +493,12 @@ class BluetoothManager(
         override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val bytes = ch.value ?: return
+                if (ch.uuid == UUID_BATTERY_LEVEL && bytes.isNotEmpty()) {
+                    val percent = (bytes[0].toInt() and 0xFF).coerceIn(0, 100)
+                    Log.d(TAG, "battery=$percent%")
+                    batteryListeners.forEach { it(percent) }
+                    return
+                }
                 Log.d(TAG, "read len=${bytes.size}")
                 frameBuffer.addAll(bytes.toList())
                 emitFramesFromBuffer { frame ->
