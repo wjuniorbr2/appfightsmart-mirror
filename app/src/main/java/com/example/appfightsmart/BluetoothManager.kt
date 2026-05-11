@@ -29,6 +29,7 @@ class BluetoothManager(
         private const val TAG = "WitBLE"
         private const val SCAN_TIMEOUT_MS = 8_000L
         private const val DIRECT_CONNECT_DELAY_MS = 500L
+        private const val POWER_REGISTER = 0x64
 
         private val UUID_SERVICE: UUID = UUID.fromString("0000ffe5-0000-1000-8000-00805f9a34fb")
         private val UUID_READ: UUID    = UUID.fromString("0000ffe4-0000-1000-8000-00805f9a34fb")
@@ -69,6 +70,10 @@ class BluetoothManager(
         sendWitCommand(byteArrayOf(0xFF.toByte(), 0xAA.toByte(), 0x00, 0x00, 0x00))
     }
 
+    fun requestWitPower() {
+        sendWitCommand(byteArrayOf(0xFF.toByte(), 0xAA.toByte(), 0x27, POWER_REGISTER.toByte(), 0x00))
+    }
+
     fun setOnConnectionStateChange(cb: (Boolean) -> Unit) {
         onConnectionStateChange = cb
     }
@@ -98,6 +103,7 @@ class BluetoothManager(
     private var scanCallback: ScanCallback? = null
     private var scanTimeoutJob: Job? = null
     private var rssiJob: Job? = null
+    private var powerJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
     @Volatile private var configPushed = false
@@ -111,6 +117,16 @@ class BluetoothManager(
             while (i < frameBuffer.size && frameBuffer[i] != 0x55.toByte()) i++
             if (frameBuffer.size - i < 11) break
             val second = frameBuffer[i + 1]
+
+            if (second == 0x71.toByte()) {
+                if (frameBuffer.size - i < 20) break
+                val packet = ByteArray(20) { idx -> frameBuffer[i + idx] }
+                handleWitRegisterPacket(packet)
+                emit(packet)
+                i += 20
+                continue
+            }
+
             val known = second == 0x61.toByte() || second == 0x62.toByte() ||
                     second == 0x63.toByte() || second == 0x64.toByte() ||
                     second == 0x51.toByte() || second == 0x52.toByte() ||
@@ -121,6 +137,34 @@ class BluetoothManager(
             i += 11
         }
         if (i > 0) repeat(i) { frameBuffer.removeAt(0) }
+    }
+
+    private fun handleWitRegisterPacket(bytes: ByteArray): Boolean {
+        if (bytes.size < 20 || bytes[0] != 0x55.toByte() || bytes[1] != 0x71.toByte()) return false
+        val startRegister = (bytes[2].toInt() and 0xFF) or ((bytes[3].toInt() and 0xFF) shl 8)
+        if (startRegister == POWER_REGISTER) {
+            val registerValue = (bytes[4].toInt() and 0xFF) or ((bytes[5].toInt() and 0xFF) shl 8)
+            val percent = voltageRegisterToBatteryPercent(registerValue)
+            Log.d(TAG, "WIT power register=$registerValue -> battery=$percent%")
+            batteryListeners.forEach { it(percent) }
+            return true
+        }
+        return false
+    }
+
+    private fun voltageRegisterToBatteryPercent(value: Int): Int = when {
+        value > 396 -> 100
+        value >= 393 -> 90
+        value >= 387 -> 75
+        value >= 382 -> 60
+        value >= 379 -> 50
+        value >= 377 -> 40
+        value >= 373 -> 30
+        value >= 370 -> 20
+        value >= 368 -> 15
+        value >= 350 -> 10
+        value >= 340 -> 5
+        else -> 0
     }
 
     fun isBluetoothEnabled(): Boolean = btAdapter?.isEnabled == true
@@ -248,6 +292,8 @@ class BluetoothManager(
         } finally {
             rssiJob?.cancel()
             rssiJob = null
+            powerJob?.cancel()
+            powerJob = null
             gatt = null
             notifyChar = null
             writeChar = null
@@ -309,13 +355,12 @@ class BluetoothManager(
         if (!hasConnectPerm()) return
         val batteryChar = g.getService(UUID_BATTERY_SERVICE)?.getCharacteristic(UUID_BATTERY_LEVEL)
         if (batteryChar == null) {
-            Log.w(TAG, "Battery service not found")
-            batteryListeners.forEach { it(null) }
+            Log.w(TAG, "Standard Battery service not found; using WIT power register")
             return
         }
         try {
             val ok = g.readCharacteristic(batteryChar)
-            Log.d(TAG, "read battery -> $ok")
+            Log.d(TAG, "read standard battery -> $ok")
         } catch (e: Exception) {
             Log.w(TAG, "read battery warning: ${e.message}")
         }
@@ -332,6 +377,17 @@ class BluetoothManager(
                     Log.w(TAG, "read RSSI warning: ${e.message}")
                 }
                 delay(5_000L)
+            }
+        }
+    }
+
+    private fun startWitPowerUpdates() {
+        powerJob?.cancel()
+        powerJob = scope.launch {
+            delay(1_000L)
+            while (isActive) {
+                requestWitPower()
+                delay(30_000L)
             }
         }
     }
@@ -356,6 +412,8 @@ class BluetoothManager(
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 rssiJob?.cancel()
                 rssiJob = null
+                powerJob?.cancel()
+                powerJob = null
                 scope.launch {
                     withContext(Dispatchers.Main) {
                         onConnectionStateChange(false)
@@ -435,6 +493,7 @@ class BluetoothManager(
                         delay(250)
                         enableAnglesAndMagAt100Hz()
                         configPushed = true
+                        startWitPowerUpdates()
                     }
                 }
             } else {
@@ -448,12 +507,14 @@ class BluetoothManager(
                         if (!configPushed) {
                             enableAnglesAndMagAt100Hz()
                             configPushed = true
+                            startWitPowerUpdates()
                         }
                     }
                 } else {
                     if (!configPushed) {
                         enableAnglesAndMagAt100Hz()
                         configPushed = true
+                        startWitPowerUpdates()
                     }
                 }
             }
@@ -495,7 +556,7 @@ class BluetoothManager(
                 val bytes = ch.value ?: return
                 if (ch.uuid == UUID_BATTERY_LEVEL && bytes.isNotEmpty()) {
                     val percent = (bytes[0].toInt() and 0xFF).coerceIn(0, 100)
-                    Log.d(TAG, "battery=$percent%")
+                    Log.d(TAG, "standard battery=$percent%")
                     batteryListeners.forEach { it(percent) }
                     return
                 }
