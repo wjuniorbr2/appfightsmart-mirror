@@ -431,7 +431,7 @@ private fun MoveCategoryCard(
                     .matchParentSize()
                     .graphicsLayer(
                         scaleX = 1.04f,
-                        scaleY = 1.14f
+                        scaleY = 1.17f
                     ),
                 contentScale = ContentScale.FillBounds
             )
