@@ -4,8 +4,12 @@ import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -32,48 +37,78 @@ import com.example.appfightsmart.viewmodel.GameSetupViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private data class MoveTypeOption(
+    val label: String,
+    val enabled: Boolean
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewModel) {
-    // State declarations
-    var numberOfPlayers by remember { mutableIntStateOf(2) }
-    var playerNames = remember { mutableStateListOf<String>() }
-    var selectedGameMode by remember { mutableIntStateOf(1) } // Changed to Int, default to 1 move
+    var numberOfPlayers by rememberSaveable { mutableIntStateOf(1) }
+    val playerNames = remember { mutableStateListOf("") }
+    var selectedGameMode by rememberSaveable { mutableIntStateOf(1) }
+
     val moveTypes = listOf(
-        stringResource(R.string.punch),
-        stringResource(R.string.hook),
-        stringResource(R.string.front_kick),
-        stringResource(R.string.leg_kick),
-        stringResource(R.string.rib_kick),
-        stringResource(R.string.head_kick)
+        MoveTypeOption(stringResource(R.string.punch_with_examples), true),
+        MoveTypeOption(stringResource(R.string.hook), false),
+        MoveTypeOption(stringResource(R.string.front_kick), false),
+        MoveTypeOption(stringResource(R.string.leg_kick), false),
+        MoveTypeOption(stringResource(R.string.rib_kick), false),
+        MoveTypeOption(stringResource(R.string.head_kick), false)
     )
-    var selectedMoveType by remember { mutableStateOf(moveTypes[0]) }
+    var selectedMoveType by rememberSaveable { mutableStateOf("") }
+    val punchLabel = stringResource(R.string.punch_with_examples)
+
+    LaunchedEffect(punchLabel) {
+        selectedMoveType = punchLabel
+    }
+
+    LaunchedEffect(numberOfPlayers) {
+        while (playerNames.size < numberOfPlayers) {
+            playerNames.add("")
+        }
+        while (playerNames.size > numberOfPlayers) {
+            playerNames.removeAt(playerNames.lastIndex)
+        }
+    }
+
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
 
-    // State to show errors or success messages
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+        }
+    }
+
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showErrorMessage by remember { mutableStateOf(false) }
 
-    // Track search state per field
     val searchQueries = remember { mutableStateMapOf<Int, String>() }
     val searchResults = remember { mutableStateMapOf<Int, List<Player>>() }
+    var focusedPlayerIndex by remember { mutableStateOf<Int?>(null) }
 
-    // Create a coroutine scope for launching suspendable operations
     val coroutineScope = rememberCoroutineScope()
 
-    // Function to check for duplicate names
     fun hasDuplicateNames(names: List<String>): Boolean {
         return names.distinct().size != names.size
     }
 
-    // LaunchedEffect to handle error message timeout
+    fun loadPlayerSuggestions(index: Int, query: String) {
+        searchQueries[index] = query
+        coroutineScope.launch {
+            searchResults[index] = viewModel.searchPlayersNow(query)
+        }
+    }
+
     LaunchedEffect(key1 = showErrorMessage) {
         if (showErrorMessage) {
-            delay(4000) // 4 seconds
+            delay(4000)
             showErrorMessage = false
-            errorMessage = null // Clear the error message
+            errorMessage = null
         }
     }
 
@@ -98,86 +133,84 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
                     .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Top
             ) {
-                // Number of Players Section
                 Text(text = stringResource(R.string.number_of_players, numberOfPlayers))
                 Slider(
                     value = numberOfPlayers.toFloat(),
                     onValueChange = { numberOfPlayers = it.toInt() },
-                    valueRange = 2f..10f,
+                    valueRange = 1f..10f,
                     steps = 8,
-                    modifier = Modifier
-                        .padding(bottom = 16.dp)
-                        .onFocusChanged { focusState ->
-                            if (focusState.hasFocus) {
-                                focusManager.clearFocus()
-                            }
-                        }
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Player Names Section
                 for (i in 0 until numberOfPlayers) {
-                    if (playerNames.size <= i) {
-                        playerNames.add("")
-                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
                         Text(
-                            text = stringResource(R.string.player_number, i + 1, playerNames[i]), // Fixed line
-                            modifier = Modifier.width(80.dp)
+                            text = stringResource(R.string.player_number_short, i + 1),
+                            modifier = Modifier
+                                .width(76.dp)
+                                .padding(top = 24.dp)
                         )
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             OutlinedTextField(
                                 value = playerNames[i],
                                 onValueChange = { newValue ->
                                     playerNames[i] = newValue
-                                    searchQueries[i] = newValue // Update search query for this field
-                                    coroutineScope.launch {
-                                        viewModel.searchPlayers(newValue) // Perform the search
-                                        searchResults[i] = viewModel.searchResults // Update search results for this field
-                                    }
+                                    focusedPlayerIndex = i
+                                    loadPlayerSuggestions(i, newValue)
                                 },
                                 label = { Text(stringResource(R.string.name)) },
-                                modifier = Modifier.padding(8.dp)
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
                                     .onFocusChanged { focusState ->
                                         if (focusState.isFocused) {
+                                            focusedPlayerIndex = i
                                             keyboardController?.show()
-                                            // Clear search results for all other fields
                                             searchQueries.keys.forEach { key ->
                                                 if (key != i) {
                                                     searchQueries[key] = ""
                                                     searchResults[key] = emptyList()
                                                 }
                                             }
+                                            loadPlayerSuggestions(i, playerNames[i])
                                         }
                                     }
                             )
 
-                            // Display search results for this field
                             val currentSearchResults = searchResults[i] ?: emptyList()
-                            if (searchQueries[i]?.isNotEmpty() == true) {
+                            if (focusedPlayerIndex == i && currentSearchResults.isNotEmpty()) {
                                 LazyColumn(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(max = 150.dp) // Limit the height of the dropdown
+                                        .heightIn(max = 120.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.surface,
+                                            RoundedCornerShape(8.dp)
+                                        )
                                 ) {
                                     items(currentSearchResults) { player ->
                                         Text(
                                             text = player.playerName,
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(8.dp)
                                                 .clickable {
-                                                    playerNames[i] = player.playerName // Autocomplete the correct field
-                                                    searchQueries[i] = "" // Clear the search query for this field
-                                                    searchResults[i] = emptyList() // Clear the search results for this field
+                                                    playerNames[i] = player.playerName
+                                                    searchQueries[i] = ""
+                                                    searchResults[i] = emptyList()
+                                                    focusedPlayerIndex = null
+                                                    focusManager.clearFocus()
+                                                    keyboardController?.hide()
                                                 }
+                                                .padding(12.dp)
                                         )
                                     }
                                 }
@@ -186,104 +219,116 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                     }
                 }
 
-                // Game Mode Section
-                Text(text = stringResource(R.string.game_mode), modifier = Modifier.padding(top = 16.dp))
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Replace RadioButtons with Slider
-                    Text(text = stringResource(R.string.number_of_moves, selectedGameMode))
-                    Slider(
-                        value = selectedGameMode.toFloat(),
-                        onValueChange = { selectedGameMode = it.toInt() },
-                        valueRange = 1f..20f,
-                        steps = 19,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
+                Text(text = stringResource(R.string.game_mode), modifier = Modifier.padding(top = 8.dp))
+                Text(text = stringResource(R.string.number_of_moves, selectedGameMode))
+                Slider(
+                    value = selectedGameMode.toFloat(),
+                    onValueChange = { selectedGameMode = it.toInt() },
+                    valueRange = 1f..20f,
+                    steps = 18,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
 
-                // Move Types Section
-                Text(text = stringResource(R.string.move_types), modifier = Modifier.padding(top = 16.dp))
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Text(text = stringResource(R.string.move_types), modifier = Modifier.padding(top = 8.dp))
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(132.dp),
+                    userScrollEnabled = false,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
-                    moveTypes.forEach { moveType ->
+                    items(moveTypes) { moveType ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 60.dp),
+                                .padding(horizontal = 2.dp)
+                                .clickable(
+                                    enabled = moveType.enabled,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    selectedMoveType = moveType.label
+                                },
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Start
                         ) {
                             RadioButton(
-                                selected = selectedMoveType == moveType,
-                                onClick = { selectedMoveType = moveType }
+                                selected = selectedMoveType == moveType.label,
+                                enabled = moveType.enabled,
+                                onClick = { selectedMoveType = moveType.label }
                             )
-                            Text(text = moveType)
+                            Text(
+                                text = moveType.label,
+                                color = if (moveType.enabled) {
+                                    MaterialTheme.colorScheme.onBackground
+                                } else {
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f)
+                                },
+                                fontSize = 14.sp
+                            )
                         }
                     }
                 }
 
-                // Start Game Button
-                val isFormValid = playerNames.none { it.isBlank() } && selectedMoveType.isNotBlank()
-
-                val context = LocalContext.current // Retrieve context for string resources
+                val activePlayerNames = playerNames.take(numberOfPlayers)
+                val isFormValid = activePlayerNames.none { it.isBlank() } && selectedMoveType.isNotBlank()
+                val context = LocalContext.current
 
                 Button(
                     onClick = {
-                        if (hasDuplicateNames(playerNames)) {
-                            errorMessage = context.getString(R.string.error_duplicate_names) // Use context instead of stringResource
+                        if (hasDuplicateNames(activePlayerNames)) {
+                            errorMessage = context.getString(R.string.error_duplicate_names)
                             showErrorMessage = true
                         } else {
                             coroutineScope.launch {
                                 try {
                                     val playerIds = mutableListOf<Long>()
-                                    playerNames.forEach { name ->
-                                        val playerId = viewModel.insertPlayerIfNotExists(name)
+                                    activePlayerNames.forEach { name ->
+                                        val playerId = viewModel.insertPlayerIfNotExists(name.trim())
                                         playerIds.add(playerId)
                                     }
                                     viewModel.insertGameSession(playerIds, selectedGameMode.toString(), selectedMoveType)
 
                                     val route = Screen.Game.createRoute(
-                                        playerNames = playerNames.joinToString(","),
+                                        playerNames = activePlayerNames.joinToString(",") { it.trim() },
                                         gameMode = selectedGameMode.toString(),
                                         selectedMoveType = selectedMoveType
                                     )
                                     navController.navigate(route)
                                 } catch (e: Exception) {
-                                    errorMessage = context.getString(R.string.error_generic) // Use context instead
+                                    Log.e("GameSetupScreen", "Failed to start game", e)
+                                    errorMessage = context.getString(R.string.error_generic)
                                     showErrorMessage = true
                                 }
                             }
                         }
                     },
-                    modifier = Modifier.padding(top = 32.dp),
+                    modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
                     enabled = isFormValid
                 ) {
-                    Text(stringResource(R.string.start_game)) // This is fine because it's inside a @Composable
+                    Text(stringResource(R.string.start_game))
                 }
             }
 
-            // Show error message if any (outside the Column but inside the Box)
             if (showErrorMessage) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)) // Semi-transparent background overlay
+                        .background(Color.Black.copy(alpha = 0.5f))
                         .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Surface(
                         modifier = Modifier.padding(16.dp),
                         shape = RoundedCornerShape(8.dp),
-                        color = Color.White, // White background
-                        border = BorderStroke(1.dp, Color.Black) // Black border line
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color.Black)
                     ) {
                         Text(
                             text = errorMessage ?: "",
-                            color = Color.Red, // Red text color
+                            color = Color.Red,
                             modifier = Modifier.padding(16.dp),
                             fontSize = 18.sp,
                             textAlign = TextAlign.Center
