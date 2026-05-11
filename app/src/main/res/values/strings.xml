@@ -32,6 +32,7 @@
     <string name="back">Back</string>
     <string name="number_of_players">Number of Players: %d</string>
     <string name="player_number">Player %d: %s</string>
+    <string name="player_number_short">Player %d</string>
     <string name="name">Name</string>
     <string name="game_mode">Game Mode</string>
     <string name="single">Single</string>
@@ -39,6 +40,7 @@
     <string name="best_of_5">Best of 5</string>
     <string name="move_types">Move Types</string>
     <string name="punch">Punch</string>
+    <string name="punch_with_examples">Punch (jab and straight punch)</string>
     <string name="hook">Hook</string>
     <string name="front_kick">Front Kick</string>
     <string name="leg_kick">Leg Kick</string>
