@@ -57,6 +57,7 @@ fun HomeScreen(
     var showResult by rememberSaveable { mutableStateOf(false) }
 
     val sensorConnectedMessage = stringResource(R.string.sensor_connected)
+    val sensorAlreadyConnected = stringResource(R.string.sensor_already_connected)
     val sensorFailed = stringResource(R.string.sensor_failed)
     val disconnectedFromSensor = stringResource(R.string.disconnected_from_sensor)
     val permissionsDenied = stringResource(R.string.permissions_denied)
@@ -117,6 +118,12 @@ fun HomeScreen(
         }
     }
 
+    fun showTemporaryMessage(message: String) {
+        connectionMessage = message
+        showConnectionMessage = true
+        showResult = true
+    }
+
     LaunchedEffect(hasTriedInitialSensorConnection) {
         if (!hasTriedInitialSensorConnection) {
             onInitialSensorConnectionTried()
@@ -124,9 +131,7 @@ fun HomeScreen(
                 isConnecting = true
                 checkAndRequestPermissions()
             } else {
-                connectionMessage = bluetoothDisabled
-                showResult = true
-                showConnectionMessage = true
+                showTemporaryMessage(bluetoothDisabled)
             }
         }
     }
@@ -208,15 +213,15 @@ fun HomeScreen(
             )
             ButtonWithDivider(
                 onClick = {
-                    if (bluetoothManager.isBluetoothEnabled()) {
+                    if (sensorConnected) {
+                        showTemporaryMessage(sensorAlreadyConnected)
+                    } else if (bluetoothManager.isBluetoothEnabled()) {
                         connectionMessage = tryingToConnect
                         showConnectionMessage = true
                         isConnecting = true
                         checkAndRequestPermissions()
                     } else {
-                        connectionMessage = bluetoothDisabled
-                        showResult = true
-                        showConnectionMessage = true
+                        showTemporaryMessage(bluetoothDisabled)
                     }
                 },
                 text = stringResource(R.string.connect_sensor)
