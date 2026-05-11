@@ -21,8 +21,13 @@ class GameSetupViewModel(private val repository: GameSessionRepository) : ViewMo
     val searchResults: List<Player> get() = _searchResults
 
     fun searchPlayers(query: String) = viewModelScope.launch {
+        searchPlayersNow(query)
+    }
+
+    suspend fun searchPlayersNow(query: String): List<Player> {
         _searchResults.clear()
         val results = repository.searchPlayers(query)
         _searchResults.addAll(results)
+        return results
     }
 }
