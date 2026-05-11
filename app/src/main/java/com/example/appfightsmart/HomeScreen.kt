@@ -1,0 +1,242 @@
+package com.example.appfightsmart
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.navigation.NavHostController
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
+
+@Composable
+fun HomeScreen(navController: NavHostController, bluetoothManager: BluetoothManager) {
+    val context = LocalContext.current
+    var isConnected by rememberSaveable { mutableStateOf(false) }
+    var connectionError by rememberSaveable { mutableStateOf<String?>(null) }
+    var connectionMessage by rememberSaveable { mutableStateOf("") }
+    var showConnectionMessage by rememberSaveable { mutableStateOf(false) }
+    var isConnecting by rememberSaveable { mutableStateOf(false) }
+    var showResult by rememberSaveable { mutableStateOf(false) }
+
+    val sensorConnected = stringResource(R.string.sensor_connected)
+    val sensorFailed = stringResource(R.string.sensor_failed)
+    val disconnectedFromSensor = stringResource(R.string.disconnected_from_sensor)
+    val permissionsDenied = stringResource(R.string.permissions_denied)
+    val tryingToConnect = stringResource(R.string.trying_to_connect)
+    val bluetoothDisabled = stringResource(R.string.bluetooth_disabled)
+
+    val onConnectionStateChange: (Boolean) -> Unit = { connected ->
+        Log.d("MainActivity", "Connection state changed: $connected")
+        isConnected = connected
+        isConnecting = false
+        connectionMessage = if (connected) sensorConnected else sensorFailed
+        connectionError = if (!connected) disconnectedFromSensor else null
+        showResult = true
+        showConnectionMessage = true
+    }
+
+    LaunchedEffect(Unit) {
+        bluetoothManager.setOnConnectionStateChange(onConnectionStateChange)
+    }
+
+    val deviceAddress = "FD:46:E3:35:67:2D"
+
+    val requestPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { permissions ->
+            val allGranted = permissions.values.all { it }
+            if (allGranted) {
+                Log.d("MainActivity", "All permissions granted")
+                bluetoothManager.connectToDevice(deviceAddress)
+            } else {
+                Log.e("MainActivity", "Some permissions denied")
+                connectionError = permissionsDenied
+                connectionMessage = permissionsDenied
+                showResult = true
+                showConnectionMessage = true
+                isConnecting = false
+            }
+        }
+    )
+
+    fun checkAndRequestPermissions() {
+        val bluetoothPermissions = arrayOf(
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+
+        val permissionsToRequest = bluetoothPermissions.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            Log.d("MainActivity", "Requesting permissions")
+            requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            Log.d("MainActivity", "Permissions already granted")
+            bluetoothManager.connectToDevice(deviceAddress)
+        }
+    }
+
+    // Auto-connect on first display
+    LaunchedEffect(Unit) {
+        if (bluetoothManager.isBluetoothEnabled()) {
+            isConnecting = true
+            checkAndRequestPermissions()
+        } else {
+            connectionMessage = bluetoothDisabled
+            showResult = true
+            showConnectionMessage = true
+        }
+    }
+
+    LaunchedEffect(key1 = showResult) {
+        if (showResult) {
+            delay(4000.milliseconds)
+            showConnectionMessage = false
+            showResult = false
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.Transparent
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.frame_fight),
+            contentDescription = stringResource(R.string.frame_image),
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp, end = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                Canvas(modifier = Modifier.size(10.dp)) {
+                    drawCircle(
+                        color = if (isConnected) Color.Green else Color.Red,
+                        radius = size.minDimension / 2
+                    )
+                }
+                Box {
+                    Text(
+                        text = stringResource(R.string.sensor_connection),
+                        fontSize = 10.sp,
+                        style = TextStyle(
+                            drawStyle = Stroke(width = 2f),
+                            color = Color.Black
+                        ),
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.sensor_connection),
+                        fontSize = 10.sp,
+                        color = Color.White,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+            }
+            Image(
+                painter = painterResource(id = R.drawable.logo_fight),
+                contentDescription = stringResource(R.string.fightsmart_logo),
+                modifier = Modifier
+                    .padding(bottom = 24.dp)
+                    .size(300.dp)
+            )
+            ButtonWithDivider(
+                onClick = { navController.navigate(Screen.GameSetup.route) },
+                text = stringResource(R.string.quick_game)
+            )
+            ButtonWithDivider(
+                onClick = { navController.navigate(Screen.Training.route) },
+                text = stringResource(R.string.training)
+            )
+            ButtonWithDivider(
+                onClick = { navController.navigate(Screen.Leaderboard.route) },
+                text = stringResource(R.string.leaderboard)
+            )
+            ButtonWithDivider(
+                onClick = {
+                    if (bluetoothManager.isBluetoothEnabled()) {
+                        connectionMessage = tryingToConnect
+                        showConnectionMessage = true
+                        isConnecting = true
+                        checkAndRequestPermissions()
+                    } else {
+                        connectionMessage = bluetoothDisabled
+                        showResult = true
+                        showConnectionMessage = true
+                    }
+                },
+                text = stringResource(R.string.connect_sensor)
+            )
+            ButtonWithDivider(
+                onClick = { navController.navigate(Screen.Settings.route) },
+                text = stringResource(R.string.settings)
+            )
+        }
+        if (showConnectionMessage) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier.padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Black.copy(alpha = 0.7f)
+                ) {
+                    Text(
+                        text = connectionMessage,
+                        modifier = Modifier.padding(32.dp),
+                        fontSize = 24.sp,
+                        color = Color.White,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
