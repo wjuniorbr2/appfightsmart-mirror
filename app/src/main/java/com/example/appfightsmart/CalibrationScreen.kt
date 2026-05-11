@@ -51,14 +51,18 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.sqrt
 
 private data class CalibrationStep(
     val type: String,
     val move: String,
     val force: String,
     val heightCmFromBagBottom: Int,
-    val repetitions: Int,
+    val repetitionIndex: Int,
+    val totalRepetitions: Int,
     val durationSeconds: Int,
     val instruction: String
 )
@@ -68,15 +72,32 @@ private data class ParsedSensorFrame(
     val accXg: Double? = null,
     val accYg: Double? = null,
     val accZg: Double? = null,
+    val accMagnitudeG: Double? = null,
+    val temperatureC: Double? = null,
     val gyroXdps: Double? = null,
     val gyroYdps: Double? = null,
     val gyroZdps: Double? = null,
+    val gyroMagnitudeDps: Double? = null,
     val angleXdeg: Double? = null,
     val angleYdeg: Double? = null,
     val angleZdeg: Double? = null,
+    val yawCompassDeg: Double? = null,
     val magXraw: Int? = null,
     val magYraw: Int? = null,
     val magZraw: Int? = null,
+    val magMagnitudeRaw: Double? = null,
+    val magneticCompassDeg: Double? = null,
+    val quaternion0: Double? = null,
+    val quaternion1: Double? = null,
+    val quaternion2: Double? = null,
+    val quaternion3: Double? = null,
+    val displacementX: Double? = null,
+    val displacementY: Double? = null,
+    val displacementZ: Double? = null,
+    val displacementSpeedX: Double? = null,
+    val displacementSpeedY: Double? = null,
+    val displacementSpeedZ: Double? = null,
+    val portStatusRaw: Int? = null,
     val motionScore: Double? = null
 )
 
@@ -118,14 +139,15 @@ fun CalibrationScreen(
         val file = File(directory, "fight_smart_calibration_$stamp.csv")
         outputPath = file.absolutePath
         val newWriter = BufferedWriter(FileWriter(file, false))
-        newWriter.write("# FightSmart punch calibration\n")
+        newWriter.write("# FightSmart complete punch calibration\n")
         newWriter.write("# Created: $stamp\n")
         newWriter.write("# Bag height: 160 cm\n")
         newWriter.write("# Bag elevation from ground: 30 cm\n")
         newWriter.write("# Sensor pipe insertion from top: 80 cm\n")
         newWriter.write("# Estimated sensor height: 80 cm from bag bottom / 110 cm from ground\n")
-        newWriter.write("# Each punch step asks for 3 repetitions. Keep the bag still before each recording.\n")
-        newWriter.write("sessionTimeMillis,stepIndex,totalSteps,stepType,move,force,heightCmFromBagBottom,repetitions,stepElapsedMillis,frameType,rawHex,accXg,accYg,accZg,gyroXdps,gyroYdps,gyroZdps,angleXdeg,angleYdeg,angleZdeg,magXraw,magYraw,magZraw,motionScore\n")
+        newWriter.write("# Stop the bag before each individual punch repetition.\n")
+        newWriter.write("# The file always stores rawHex. Parsed columns are filled when that frame type is emitted by the sensor.\n")
+        newWriter.write("sessionTimeMillis,stepIndex,totalSteps,stepType,move,force,heightCmFromBagBottom,repetitionIndex,totalRepetitions,stepElapsedMillis,frameType,rawHex,accXg,accYg,accZg,accMagnitudeG,temperatureC,gyroXdps,gyroYdps,gyroZdps,gyroMagnitudeDps,angleXdeg,angleYdeg,angleZdeg,yawCompassDeg,magXraw,magYraw,magZraw,magMagnitudeRaw,magneticCompassDeg,quaternion0,quaternion1,quaternion2,quaternion3,displacementX,displacementY,displacementZ,displacementSpeedX,displacementSpeedY,displacementSpeedZ,portStatusRaw,motionScore\n")
         newWriter.flush()
         return newWriter
     }
@@ -150,22 +172,40 @@ fun CalibrationScreen(
             csv(step.move),
             csv(step.force),
             step.heightCmFromBagBottom.toString(),
-            step.repetitions.toString(),
+            step.repetitionIndex.toString(),
+            step.totalRepetitions.toString(),
             stepElapsedMillis.toString(),
             csv(parsed.frameType),
             csv(bytes.toHexString()),
             parsed.accXg?.format6().orEmpty(),
             parsed.accYg?.format6().orEmpty(),
             parsed.accZg?.format6().orEmpty(),
+            parsed.accMagnitudeG?.format6().orEmpty(),
+            parsed.temperatureC?.format6().orEmpty(),
             parsed.gyroXdps?.format6().orEmpty(),
             parsed.gyroYdps?.format6().orEmpty(),
             parsed.gyroZdps?.format6().orEmpty(),
+            parsed.gyroMagnitudeDps?.format6().orEmpty(),
             parsed.angleXdeg?.format6().orEmpty(),
             parsed.angleYdeg?.format6().orEmpty(),
             parsed.angleZdeg?.format6().orEmpty(),
+            parsed.yawCompassDeg?.format6().orEmpty(),
             parsed.magXraw?.toString().orEmpty(),
             parsed.magYraw?.toString().orEmpty(),
             parsed.magZraw?.toString().orEmpty(),
+            parsed.magMagnitudeRaw?.format6().orEmpty(),
+            parsed.magneticCompassDeg?.format6().orEmpty(),
+            parsed.quaternion0?.format6().orEmpty(),
+            parsed.quaternion1?.format6().orEmpty(),
+            parsed.quaternion2?.format6().orEmpty(),
+            parsed.quaternion3?.format6().orEmpty(),
+            parsed.displacementX?.format6().orEmpty(),
+            parsed.displacementY?.format6().orEmpty(),
+            parsed.displacementZ?.format6().orEmpty(),
+            parsed.displacementSpeedX?.format6().orEmpty(),
+            parsed.displacementSpeedY?.format6().orEmpty(),
+            parsed.displacementSpeedZ?.format6().orEmpty(),
+            parsed.portStatusRaw?.toString().orEmpty(),
             parsed.motionScore?.format6().orEmpty()
         ).joinToString(",")
         synchronized(fileLock) {
@@ -233,13 +273,13 @@ fun CalibrationScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Punch sensor calibration",
+                text = "Complete punch calibration",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "This records raw and parsed sensor data for acceleration, gyroscope, angles, magnetometer frames, and any extra raw frames received. Do this with punches only for now.",
+                text = "This records raw sensor frames plus parsed acceleration, gyro, angles, compass/yaw, magnetometer, temperature, quaternion, displacement, displacement speed, and port-status columns when available.",
                 textAlign = TextAlign.Center
             )
 
@@ -280,7 +320,7 @@ fun CalibrationScreen(
                             isRecording = true
                         }
                     ) {
-                        Text(if (currentStep.type == "baseline") "Record still bag" else "Record this step")
+                        Text(if (currentStep.type == "baseline") "Record still bag" else "Record this punch")
                     }
                     OutlinedButton(
                         enabled = !isRecording,
@@ -307,9 +347,9 @@ private fun CalibrationInfoCard() {
             Text("Test plan", fontWeight = FontWeight.Bold)
             Text("1. First record a still-bag baseline.")
             Text("2. Then follow the prompts for jab, cross, and hook.")
-            Text("3. Each punch step asks for 3 repetitions at light, medium, and strong force.")
+            Text("3. Each punch is recorded as its own step: light, medium, and strong force.")
             Text("4. Heights are measured from the bottom of the bag: 80 cm, 100 cm, 120 cm, and 140 cm.")
-            Text("5. Let the bag stop moving before starting the next step.")
+            Text("5. Stop the bag before each individual punch, not only after a group of three.")
         }
     }
 }
@@ -343,7 +383,7 @@ private fun StepCard(
                     Text("Force: ${step.force}")
                 }
                 Text("Height: ${step.heightCmFromBagBottom} cm from the bottom of the bag")
-                Text("Repetitions: ${step.repetitions}")
+                Text("Repetition: ${step.repetitionIndex} of ${step.totalRepetitions}")
             }
             if (isRecording) {
                 Surface(
@@ -373,7 +413,8 @@ private fun buildPunchCalibrationSteps(): List<CalibrationStep> {
         move = "none",
         force = "none",
         heightCmFromBagBottom = 80,
-        repetitions = 0,
+        repetitionIndex = 0,
+        totalRepetitions = 0,
         durationSeconds = 6,
         instruction = "Please stop the bag. Record the still bag baseline."
     )
@@ -381,19 +422,23 @@ private fun buildPunchCalibrationSteps(): List<CalibrationStep> {
     val moves = listOf("Jab", "Cross", "Hook")
     val heights = listOf(80, 100, 120, 140)
     val forces = listOf("light", "medium", "strong")
+    val totalRepetitions = 3
 
     for (height in heights) {
         for (move in moves) {
             for (force in forces) {
-                steps += CalibrationStep(
-                    type = "punch",
-                    move = move,
-                    force = force,
-                    heightCmFromBagBottom = height,
-                    repetitions = 3,
-                    durationSeconds = 8,
-                    instruction = "Punch at $height cm from the bottom: $move, $force force, 3 times."
-                )
+                for (rep in 1..totalRepetitions) {
+                    steps += CalibrationStep(
+                        type = "punch",
+                        move = move,
+                        force = force,
+                        heightCmFromBagBottom = height,
+                        repetitionIndex = rep,
+                        totalRepetitions = totalRepetitions,
+                        durationSeconds = 5,
+                        instruction = "Stop the bag. Then punch once at $height cm from the bottom: $move, $force force. Repetition $rep of $totalRepetitions."
+                    )
+                }
             }
         }
     }
@@ -409,38 +454,83 @@ private fun parseWitFrame(bytes: ByteArray): ParsedSensorFrame {
         val high = bytes[offset + 1].toInt()
         return (high shl 8) or low
     }
+    fun normalizedHeading(deg: Double): Double {
+        var value = deg % 360.0
+        if (value < 0) value += 360.0
+        return value
+    }
 
     return when (bytes[1].toInt() and 0xFF) {
         0x51 -> {
             val ax = s16(2) / 32768.0 * 16.0
             val ay = s16(4) / 32768.0 * 16.0
             val az = s16(6) / 32768.0 * 16.0
-            ParsedSensorFrame("acceleration", accXg = ax, accYg = ay, accZg = az, motionScore = abs(ax) + abs(ay) + abs(az))
+            val temp = s16(8) / 100.0
+            val magnitude = sqrt(ax * ax + ay * ay + az * az)
+            ParsedSensorFrame(
+                frameType = "acceleration_temperature",
+                accXg = ax,
+                accYg = ay,
+                accZg = az,
+                accMagnitudeG = magnitude,
+                temperatureC = temp,
+                motionScore = abs(ax) + abs(ay) + abs(az)
+            )
         }
         0x52 -> {
             val gx = s16(2) / 32768.0 * 2000.0
             val gy = s16(4) / 32768.0 * 2000.0
             val gz = s16(6) / 32768.0 * 2000.0
-            ParsedSensorFrame("gyroscope", gyroXdps = gx, gyroYdps = gy, gyroZdps = gz, motionScore = abs(gx) + abs(gy) + abs(gz))
+            val magnitude = sqrt(gx * gx + gy * gy + gz * gz)
+            ParsedSensorFrame(
+                frameType = "gyroscope",
+                gyroXdps = gx,
+                gyroYdps = gy,
+                gyroZdps = gz,
+                gyroMagnitudeDps = magnitude,
+                motionScore = abs(gx) + abs(gy) + abs(gz)
+            )
         }
-        0x53 -> ParsedSensorFrame(
-            frameType = "angle",
-            angleXdeg = s16(2) / 32768.0 * 180.0,
-            angleYdeg = s16(4) / 32768.0 * 180.0,
-            angleZdeg = s16(6) / 32768.0 * 180.0
+        0x53 -> {
+            val roll = s16(2) / 32768.0 * 180.0
+            val pitch = s16(4) / 32768.0 * 180.0
+            val yaw = s16(6) / 32768.0 * 180.0
+            ParsedSensorFrame(
+                frameType = "angle_yaw_compass",
+                angleXdeg = roll,
+                angleYdeg = pitch,
+                angleZdeg = yaw,
+                yawCompassDeg = normalizedHeading(yaw)
+            )
+        }
+        0x54 -> {
+            val mx = s16(2)
+            val my = s16(4)
+            val mz = s16(6)
+            val magMagnitude = sqrt((mx * mx + my * my + mz * mz).toDouble())
+            val heading = normalizedHeading(atan2(my.toDouble(), mx.toDouble()) * 180.0 / PI)
+            ParsedSensorFrame(
+                frameType = "magnetometer_magnetic_compass",
+                magXraw = mx,
+                magYraw = my,
+                magZraw = mz,
+                magMagnitudeRaw = magMagnitude,
+                magneticCompassDeg = heading
+            )
+        }
+        0x59 -> ParsedSensorFrame(
+            frameType = "quaternion_possible",
+            quaternion0 = s16(2) / 32768.0,
+            quaternion1 = s16(4) / 32768.0,
+            quaternion2 = s16(6) / 32768.0,
+            quaternion3 = s16(8) / 32768.0
         )
-        0x54 -> ParsedSensorFrame(
-            frameType = "magnetometer",
-            magXraw = s16(2),
-            magYraw = s16(4),
-            magZraw = s16(6)
-        )
-        0x61 -> ParsedSensorFrame(frameType = "combined_0x61")
-        0x62 -> ParsedSensorFrame(frameType = "combined_0x62")
-        0x63 -> ParsedSensorFrame(frameType = "combined_0x63")
-        0x64 -> ParsedSensorFrame(frameType = "combined_0x64")
-        0x71 -> ParsedSensorFrame(frameType = "register_return_0x71")
-        else -> ParsedSensorFrame(frameType = "wit_0x${(bytes[1].toInt() and 0xFF).toString(16)}")
+        0x61 -> ParsedSensorFrame(frameType = "combined_0x61_raw_saved")
+        0x62 -> ParsedSensorFrame(frameType = "combined_0x62_raw_saved")
+        0x63 -> ParsedSensorFrame(frameType = "combined_0x63_raw_saved")
+        0x64 -> ParsedSensorFrame(frameType = "combined_0x64_raw_saved")
+        0x71 -> ParsedSensorFrame(frameType = "register_return_0x71_raw_saved")
+        else -> ParsedSensorFrame(frameType = "wit_0x${(bytes[1].toInt() and 0xFF).toString(16)}_raw_saved")
     }
 }
 
