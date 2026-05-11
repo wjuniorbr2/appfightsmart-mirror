@@ -3,12 +3,17 @@ package com.example.appfightsmart
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.*
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,6 +26,9 @@ class BluetoothManager(
 ) {
     companion object {
         private const val TAG = "WitBLE"
+        private const val SCAN_TIMEOUT_MS = 8_000L
+        private const val DIRECT_CONNECT_DELAY_MS = 500L
+
         // Newer WIT layout (from your email)
         private val UUID_SERVICE: UUID = UUID.fromString("0000ffe5-0000-1000-8000-00805f9a34fb")
         private val UUID_READ: UUID    = UUID.fromString("0000ffe4-0000-1000-8000-00805f9a34fb") // NOTIFY
@@ -84,13 +92,18 @@ class BluetoothManager(
     // === System BT ===
     private val sysBtMgr = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
     private val btAdapter: BluetoothAdapter? = sysBtMgr?.adapter
+    private val btScanner get() = btAdapter?.bluetoothLeScanner
     private var gatt: BluetoothGatt? = null
     private var notifyChar: BluetoothGattCharacteristic? = null
     private var writeChar: BluetoothGattCharacteristic? = null
+    private var scanCallback: ScanCallback? = null
+    private var scanTimeoutJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
     // SEARCH ANCHOR 1: CONFIG PUSH FLAG
     @Volatile private var configPushed = false
+    @Volatile private var pendingDeviceAddress: String? = null
+    @Volatile private var lastConnectUsedScan = false
 
     // --- Reassembler buffer for 11-byte WIT frames ---
     private val frameBuffer = ArrayList<Byte>(256)
@@ -118,27 +131,149 @@ class BluetoothManager(
     fun connectToDevice(deviceAddress: String) {
         try {
             Log.d(TAG, "Connecting to $deviceAddress")
-            if (btAdapter?.isEnabled != true) return
+            if (btAdapter?.isEnabled != true) {
+                Log.e(TAG, "Bluetooth is disabled")
+                return
+            }
             if (!BluetoothAdapter.checkBluetoothAddress(deviceAddress)) {
                 Log.e(TAG, "Invalid address $deviceAddress")
                 return
             }
-            gatt?.close()
-            val device = btAdapter.getRemoteDevice(deviceAddress)
-            gatt = device.connectGatt(context, false, gattCallback)
+            if (!hasConnectPerm()) {
+                Log.e(TAG, "No BLUETOOTH_CONNECT")
+                return
+            }
+
+            stopScan()
+            closeGatt()
+            pendingDeviceAddress = deviceAddress
+            configPushed = false
+            frameBuffer.clear()
+            btAdapter.cancelDiscovery()
+
+            // A short BLE scan before connect is important for this WIT sensor after a phone reboot.
+            // The official WitMotion app likely does this scan/warmup first, which is why our app
+            // connects more reliably after that app has been opened once.
+            if (hasScanPerm() && btScanner != null) {
+                startWarmupScanThenConnect(deviceAddress)
+            } else {
+                Log.w(TAG, "No scan permission/scanner; using direct BLE connect")
+                directConnect(deviceAddress)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "connect error: ${e.message}")
         }
     }
 
     @SuppressLint("MissingPermission")
+    private fun startWarmupScanThenConnect(deviceAddress: String) {
+        if (!hasScanPerm()) {
+            directConnect(deviceAddress)
+            return
+        }
+
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
+        val callback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val foundAddress = result.device?.address ?: return
+                if (foundAddress.equals(deviceAddress, ignoreCase = true)) {
+                    Log.d(TAG, "Found WIT sensor in scan: $foundAddress rssi=${result.rssi}")
+                    stopScan()
+                    connectToScannedDevice(result.device)
+                }
+            }
+
+            override fun onBatchScanResults(results: MutableList<ScanResult>) {
+                results.forEach { onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) }
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                Log.e(TAG, "BLE scan failed: $errorCode; falling back to direct connect")
+                stopScan()
+                directConnect(deviceAddress)
+            }
+        }
+
+        scanCallback = callback
+        try {
+            Log.d(TAG, "Starting BLE warmup scan for $deviceAddress")
+            btScanner?.startScan(null, settings, callback)
+            scanTimeoutJob = scope.launch {
+                delay(SCAN_TIMEOUT_MS)
+                if (pendingDeviceAddress == deviceAddress && gatt == null) {
+                    Log.w(TAG, "BLE warmup scan timed out; falling back to direct connect")
+                    stopScan()
+                    delay(DIRECT_CONNECT_DELAY_MS)
+                    directConnect(deviceAddress)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startScan error: ${e.message}; falling back to direct connect")
+            stopScan()
+            directConnect(deviceAddress)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun connectToScannedDevice(device: BluetoothDevice) {
+        if (!hasConnectPerm()) return
+        lastConnectUsedScan = true
+        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        } else {
+            device.connectGatt(context, false, gattCallback)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun directConnect(deviceAddress: String) {
+        if (!hasConnectPerm()) return
+        val device = btAdapter?.getRemoteDevice(deviceAddress) ?: return
+        lastConnectUsedScan = false
+        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        } else {
+            device.connectGatt(context, false, gattCallback)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopScan() {
+        val callback = scanCallback ?: return
+        try {
+            if (hasScanPerm()) btScanner?.stopScan(callback)
+        } catch (e: Exception) {
+            Log.w(TAG, "stopScan warning: ${e.message}")
+        } finally {
+            scanCallback = null
+            scanTimeoutJob?.cancel()
+            scanTimeoutJob = null
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun closeGatt() {
+        try {
+            gatt?.disconnect()
+            gatt?.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "closeGatt warning: ${e.message}")
+        } finally {
+            gatt = null
+            notifyChar = null
+            writeChar = null
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     fun disconnectDevice() {
         if (!hasConnectPerm()) return
-        gatt?.disconnect()
-        gatt?.close()
-        gatt = null
-        notifyChar = null
-        writeChar = null
+        stopScan()
+        closeGatt()
+        pendingDeviceAddress = null
         frameBuffer.clear()
         configPushed = false
     }
@@ -154,6 +289,9 @@ class BluetoothManager(
 
     private fun hasConnectPerm(): Boolean =
         ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasScanPerm(): Boolean =
+        ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
 
     private fun propsToString(props: Int): String {
         val p = mutableListOf<String>()
@@ -181,8 +319,9 @@ class BluetoothManager(
     private val gattCallback = object : BluetoothGattCallback() {
 
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            Log.d(TAG, "state=$newState status=$status")
+            Log.d(TAG, "state=$newState status=$status usedScan=$lastConnectUsedScan")
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                pendingDeviceAddress = null
                 scope.launch {
                     withContext(Dispatchers.Main) {
                         onConnectionStateChange(true)
@@ -190,6 +329,7 @@ class BluetoothManager(
                     }
                 }
                 if (hasConnectPerm()) {
+                    g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     g.requestMtu(185)
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
