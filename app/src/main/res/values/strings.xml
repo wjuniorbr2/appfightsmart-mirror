@@ -40,6 +40,9 @@
     <string name="best_of_5">Best of 5</string>
     <string name="move_types">Move Types</string>
     <string name="punch">Punch</string>
+    <string name="kick">Kick</string>
+    <string name="jab">Jab</string>
+    <string name="cross">Cross</string>
     <string name="punch_with_examples">Punch (jab and straight punch)</string>
     <string name="hook">Hook</string>
     <string name="front_kick">Front Kick</string>
