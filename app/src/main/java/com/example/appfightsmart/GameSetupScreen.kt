@@ -1,8 +1,9 @@
 package com.example.appfightsmart
 
 import android.util.Log
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -48,13 +50,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -409,70 +412,50 @@ private fun MoveCategoryCard(
 ) {
     val shape = RoundedCornerShape(14.dp)
     Card(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .clip(shape)
+            .clickable(onClick = onClick),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    brush = Brush.linearGradient(
-                        colors = if (selected) {
-                            listOf(
-                                Color(0xFFE8E8E8),
-                                Color(0xFF9D9D9D),
-                                Color(0xFF2B2B2B)
-                            )
-                        } else {
-                            listOf(
-                                Color(0xFFD7D7D7),
-                                Color(0xFF777777),
-                                Color(0xFF1F1F1F)
-                            )
-                        },
-                        start = Offset.Zero,
-                        end = Offset.Infinite
-                    ),
-                    shape = shape
-                )
+                .height(78.dp)
         ) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val stroke = 2.dp.toPx()
-                drawLine(
-                    color = Color.White.copy(alpha = 0.75f),
-                    start = Offset(stroke, stroke),
-                    end = Offset(size.width - stroke, stroke),
-                    strokeWidth = stroke
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.55f),
-                    start = Offset(stroke, stroke),
-                    end = Offset(stroke, size.height - stroke),
-                    strokeWidth = stroke
-                )
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.75f),
-                    start = Offset(stroke, size.height - stroke),
-                    end = Offset(size.width - stroke, size.height - stroke),
-                    strokeWidth = stroke
-                )
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.65f),
-                    start = Offset(size.width - stroke, stroke),
-                    end = Offset(size.width - stroke, size.height - stroke),
-                    strokeWidth = stroke
+            Image(
+                painter = painterResource(id = R.drawable.button),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            if (!selected) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.18f))
                 )
             }
-            Text(
-                text = text,
+
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 14.dp, horizontal = 8.dp),
-                textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
+                    .matchParentSize()
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) Color.White else Color.LightGray.copy(alpha = 0.70f),
+                        shape = shape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = text,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
