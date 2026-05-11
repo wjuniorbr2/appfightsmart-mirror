@@ -1,6 +1,5 @@
 package com.example.appfightsmart
 
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
@@ -23,41 +22,39 @@ import kotlin.math.*
 fun SensorOverlay(
     bluetoothManager: BluetoothManager,
     visible: Boolean,
-    headingOffsetDeg: Float = +90f,   // +90° matched your mounting
+    headingOffsetDeg: Float = +90f,   // your mounting offset
 ) {
     if (!visible) return
 
-    // --------- Smoothed IMU state ----------
+    // --------- IMU state (smoothed) ----------
     var pitch by remember { mutableStateOf(0f) } // deg
     var roll  by remember { mutableStateOf(0f) } // deg
-    var yaw   by remember { mutableStateOf(0f) } // deg, [-180..180]
+    var yaw   by remember { mutableStateOf(0f) } // deg
     var haveAngles by remember { mutableStateOf(false) }
 
-    // keep accel/gravity for possible future use
-    var ax by remember { mutableStateOf(0f) }
-    var ay by remember { mutableStateOf(0f) }
+    // gravity estimates (for fallback pitch/roll)
     var gx by remember { mutableStateOf(0f) }
     var gy by remember { mutableStateOf(0f) }
     var gz by remember { mutableStateOf(1f) }
 
-    // Counters so you can SEE what frames are arriving
+    // Counters (debug)
     var accCount by remember { mutableStateOf(0) }
     var angCount by remember { mutableStateOf(0) }
     var magCount by remember { mutableStateOf(0) }
 
-    // Filters — calmer
+    // Filters
     val aAcc  = 0.25f
     val aGrav = 0.90f
     val aAng  = 0.20f
     val aYawMag = 0.60f
 
-    // ---------- BLE data subscription ----------
+    // ---------- BLE subscription ----------
     DisposableEffect(bluetoothManager) {
         val listener: (ByteArray) -> Unit = { data ->
             try {
                 if (data.size == 11 && data[0] == 0x55.toByte()) {
                     when (data[1]) {
-                        0x61.toByte(), 0x51.toByte() -> { // ACC
+                        0x61.toByte(), 0x51.toByte() -> { // ACC (gravity fallback)
                             accCount++
                             val axRaw = (((data[3].toInt() and 0xFF) shl 8) or (data[2].toInt() and 0xFF)).toShort().toInt()
                             val ayRaw = (((data[5].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)).toShort().toInt()
@@ -65,14 +62,11 @@ fun SensorOverlay(
                             val axG = axRaw / 32768f * 16f
                             val ayG = ayRaw / 32768f * 16f
                             val azG = azRaw / 32768f * 16f
-                            // gravity/acc smoothing
                             gx = aGrav * gx + (1 - aGrav) * axG
                             gy = aGrav * gy + (1 - aGrav) * ayG
                             gz = aGrav * gz + (1 - aGrav) * azG
-                            ax = aAcc  * ax + (1 - aAcc)  * axG
-                            ay = aAcc  * ay + (1 - aAcc)  * ayG
+
                             if (!haveAngles) {
-                                // coarse pitch/roll from gravity until ANG arrives
                                 val pitchEst = Math.toDegrees(atan2((-gx).toDouble(), sqrt((gy*gy + gz*gz).toDouble()))).toFloat()
                                 val rollEst  = Math.toDegrees(atan2(gy.toDouble(), gz.toDouble())).toFloat()
                                 pitch = aAng * pitch + (1 - aAng) * pitchEst
@@ -115,7 +109,7 @@ fun SensorOverlay(
         onDispose { bluetoothManager.removeDataListener(listener) }
     }
 
-    // If we only see ACC frames after startup, retry enabling ANG+MAG once.
+    // If only ACC arrives, retry enabling ANG+MAG once.
     var requestedAnglesOnce by remember { mutableStateOf(false) }
     LaunchedEffect(accCount, angCount, magCount) {
         if (!requestedAnglesOnce && accCount > 30 && angCount == 0 && magCount == 0) {
@@ -124,37 +118,59 @@ fun SensorOverlay(
         }
     }
 
-    // --------- Visual mapping (calm) ----------
+    // --------- Visual mapping (SUPER SIMPLE + tiny realism) ----------
     val yawRad = Math.toRadians(yaw.toDouble()).toFloat()
     val offRad = Math.toRadians(headingOffsetDeg.toDouble()).toFloat()
     val yawWithOffset = yawRad + offRad
 
-    // Side: flip sign so left tilt → left movement
+    // Left/right → rotationZ around top-center (pendulum)
     val sideDeg =
         -(roll * cos(yawWithOffset.toDouble()).toFloat() +
                 pitch * sin(yawWithOffset.toDouble()).toFloat())
+    val rawSide = sideDeg.coerceIn(-30f, 30f)
+    var sideSmoothed by remember { mutableStateOf(0f) }
+    sideSmoothed = 0.80f * sideSmoothed + 0.20f * rawSide
+    val rotZ = -sideSmoothed // your setup needs inversion
 
-    // Depth: forward tilt → toward camera (bigger & rise)
+    // Forward/back → simple scale + tiny rotationX (neutral-safe)
     val depthDeg =
         (pitch * cos(yawWithOffset.toDouble()).toFloat() -
                 roll  * sin(yawWithOffset.toDouble()).toFloat())
+    val rawDepth = depthDeg.coerceIn(-60f, 60f)
+    var depthSmoothed by remember { mutableStateOf(0f) }
+    depthSmoothed = 0.90f * depthSmoothed + 0.10f * rawDepth
 
-    // Smooth the displayed tilt for silky swing
-    val rawTilt = (sideDeg * 1.2f).coerceIn(-30f, 30f)
-    var tiltSmoothed by remember { mutableStateOf(0f) }
-    tiltSmoothed = 0.80f * tiltSmoothed + 0.20f * rawTilt
+    // === Baseline + deadzone so depth==0 → scale==1 EXACTLY ===
+    var depthBaseline by remember { mutableStateOf<Float?>(null) }
+    if (depthBaseline == null) depthBaseline = depthSmoothed  // lock at first reading
+    val depthZero = depthSmoothed - (depthBaseline ?: 0f)
 
-    val tx      = sin(Math.toRadians(tiltSmoothed.toDouble())).toFloat() * 24f
-    val tyArc   = (1f - cos(Math.toRadians(tiltSmoothed.toDouble())).toFloat()) * 7f
-    val scaleNear = (1f + (depthDeg / 30f) * 0.18f).coerceIn(0.88f, 1.14f)
-    val tyDepth   = (depthDeg / 30f) * -10f
+    val DEADZONE = 2.0f // degrees around zero considered perfectly neutral
+    val depthAfterDZ = if (abs(depthZero) < DEADZONE) 0f
+    else depthZero - DEADZONE * sign(depthZero)
+
+    // Map depthAfterDZ to a small size change (neutral safe)
+    val DEPTH_SIGN = +1f
+    val SCALE_PER_DEG = 0.004f  // 10° → ~4% size change
+    val scaleDelta = (DEPTH_SIGN * depthAfterDZ) * SCALE_PER_DEG
+
+    // ----- Minimal realism knobs (all zero at neutral) -----
+    // Slightly wider than taller when coming toward you
+    val scaleXF = (1f + scaleDelta * 1.05f).coerceIn(0.85f, 1.18f)
+    val scaleYF = (1f + scaleDelta * 0.85f).coerceIn(0.85f, 1.15f)
+
+    // Tiny rotationX to sell forward/back tilt (top pivot keeps anchor)
+    val rotX = (depthAfterDZ * 0.6f).coerceIn(-18f, 18f)
+
+    // Perspective so rotationX reads as tilt (not zoom)
+    val density = LocalDensity.current
+    val cameraDistancePx = with(density) { (146.dp * 30).toPx() } // 8x sprite height ≈ gentle
 
     // Layout
     val overlaySize: Dp = 160.dp
-    val bagWidth: Dp = 92.dp
-    val bagHeight: Dp = 168.dp
-    val topMarginPx = 10f
-    var attachOffsetIntoSpritePx = 60f // tuned shorter to meet bag top better
+    val spriteWidth: Dp = 78.dp
+    val spriteHeight: Dp = 146.dp
+    val topMarginPx = 8f
 
     Box(
         modifier = Modifier
@@ -163,57 +179,26 @@ fun SensorOverlay(
             .background(Color(0x22000000)),
         contentAlignment = Alignment.TopCenter
     ) {
-        val anchorY = 6f
-        val bagTopX = tx
-        val bagTopY = topMarginPx + tyArc + tyDepth
-
-        // Bag sprite ring is slightly right of visual center; nudge chain to meet the ring
-        val ringCenterOffsetPx = 5f  // << tweak: positive shifts chain-bottom right to meet bag
-
-        // CHAIN (anchored at ceiling center; true length & angle)
-        val dx = bagTopX + ringCenterOffsetPx
-        val dy = (bagTopY + attachOffsetIntoSpritePx) - anchorY
-        val ropeLenPx = sqrt(dx * dx + dy * dy)
-
-        if (ropeLenPx > 2f) {
-            val angleDeg = Math.toDegrees(atan2(dx.toDouble(), dy.toDouble())).toFloat()
-            Image(
-                painter = painterResource(id = R.drawable.metal_chain),
-                contentDescription = "Chain",
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .width(14.dp)
-                    .height(ropeLenPx.dp)
-                    // Top of chain glued at overlay's top center
-                    .offset(x = (-7).dp, y = anchorY.dp)
-                    .graphicsLayer {
-                        rotationZ = angleDeg
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f) // rotate around top-center
-                        alpha = 0.98f
-                    }
-            )
-        }
-
-        // Bag
         Image(
-            painter = painterResource(id = R.drawable.punching_bag),
-            contentDescription = "Bag",
+            painter = painterResource(id = R.drawable.punching_bag_and_chain),
+            contentDescription = "Bag and Chain",
             modifier = Modifier
-                .size(bagWidth, bagHeight)
-                .offset(x = tx.dp, y = (topMarginPx + tyArc + tyDepth).dp)
+                .size(spriteWidth, spriteHeight)
+                // Top anchored — no X/Y offsets tied to depth
+                .offset(y = topMarginPx.dp)
                 .graphicsLayer {
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                    rotationZ = tiltSmoothed
-                    val spin = (yaw % 360f)
-                    rotationY = (spin / 180f) * 6f
-                    scaleX = scaleNear
-                    scaleY = scaleNear
+                    rotationZ = rotZ
+                    rotationX = rotX
+                    cameraDistance = cameraDistancePx
+                    scaleX = scaleXF
+                    scaleY = scaleYF
                 }
         )
 
-        // On-screen debug (always visible)
+        // HUD (for debugging)
         androidx.compose.material3.Text(
-            text = "yaw=${yaw.toInt()}°  side=${sideDeg.toInt()}  depth=${depthDeg.toInt()}  ACC:$accCount ANG:$angCount MAG:$magCount",
+            text = "side=${sideDeg.toInt()} depth=${depthDeg.toInt()} zero=${depthZero.toInt()} rotX=${rotX.toInt()} scaleX=${"%.2f".format(scaleXF)} scaleY=${"%.2f".format(scaleYF)} ACC:$accCount ANG:$angCount MAG:$magCount",
             color = Color.White,
             fontSize = 10.sp,
             style = TextStyle(),
