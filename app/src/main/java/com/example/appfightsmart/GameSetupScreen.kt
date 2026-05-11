@@ -1,7 +1,6 @@
 package com.example.appfightsmart
 
 import android.util.Log
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.BorderStroke as MaterialBorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -383,8 +381,7 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                     Surface(
                         modifier = Modifier.padding(16.dp),
                         shape = RoundedCornerShape(8.dp),
-                        color = Color.White,
-                        border = BorderStroke(1.dp, Color.Black)
+                        color = Color.White
                     ) {
                         Text(
                             text = errorMessage ?: "",
@@ -416,10 +413,6 @@ private fun MoveCategoryCard(
             } else {
                 MaterialTheme.colorScheme.surfaceVariant
             }
-        ),
-        border = MaterialBorderStroke(
-            width = 1.dp,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
         )
     ) {
         Text(
