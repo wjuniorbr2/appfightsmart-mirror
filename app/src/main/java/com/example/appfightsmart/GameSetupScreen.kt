@@ -4,21 +4,48 @@ import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.BorderStroke as MaterialBorderStroke
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -28,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,10 +64,12 @@ import com.example.appfightsmart.database.Player
 import com.example.appfightsmart.viewmodel.GameSetupViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-private data class MoveTypeOption(
-    val label: String,
-    val enabled: Boolean
+private enum class MoveCategory { Punch, Kick }
+
+private data class MoveOption(
+    val label: String
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
@@ -48,30 +78,20 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
     var numberOfPlayers by rememberSaveable { mutableIntStateOf(1) }
     val playerNames = remember { mutableStateListOf("") }
     var selectedGameMode by rememberSaveable { mutableIntStateOf(1) }
-
-    val moveTypes = listOf(
-        MoveTypeOption(stringResource(R.string.punch_with_examples), true),
-        MoveTypeOption(stringResource(R.string.hook), false),
-        MoveTypeOption(stringResource(R.string.front_kick), false),
-        MoveTypeOption(stringResource(R.string.leg_kick), false),
-        MoveTypeOption(stringResource(R.string.rib_kick), false),
-        MoveTypeOption(stringResource(R.string.head_kick), false)
-    )
+    var selectedCategory by rememberSaveable { mutableStateOf<MoveCategory?>(null) }
     var selectedMoveType by rememberSaveable { mutableStateOf("") }
-    val punchLabel = stringResource(R.string.punch_with_examples)
 
-    LaunchedEffect(punchLabel) {
-        selectedMoveType = punchLabel
-    }
-
-    LaunchedEffect(numberOfPlayers) {
-        while (playerNames.size < numberOfPlayers) {
-            playerNames.add("")
-        }
-        while (playerNames.size > numberOfPlayers) {
-            playerNames.removeAt(playerNames.lastIndex)
-        }
-    }
+    val punchOptions = listOf(
+        MoveOption(stringResource(R.string.jab)),
+        MoveOption(stringResource(R.string.cross)),
+        MoveOption(stringResource(R.string.hook))
+    )
+    val kickOptions = listOf(
+        MoveOption(stringResource(R.string.leg_kick)),
+        MoveOption(stringResource(R.string.rib_kick)),
+        MoveOption(stringResource(R.string.head_kick)),
+        MoveOption(stringResource(R.string.front_kick))
+    )
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -95,6 +115,22 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
 
     fun hasDuplicateNames(names: List<String>): Boolean {
         return names.distinct().size != names.size
+    }
+
+    fun setPlayerCount(newCount: Int) {
+        val clampedCount = newCount.coerceIn(1, 10)
+        numberOfPlayers = clampedCount
+        while (playerNames.size < clampedCount) {
+            playerNames.add("")
+        }
+        while (playerNames.size > clampedCount) {
+            playerNames.removeAt(playerNames.lastIndex)
+        }
+        if ((focusedPlayerIndex ?: -1) >= clampedCount) {
+            focusedPlayerIndex = null
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
     }
 
     fun loadPlayerSuggestions(index: Int, query: String) {
@@ -141,7 +177,7 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                 Text(text = stringResource(R.string.number_of_players, numberOfPlayers))
                 Slider(
                     value = numberOfPlayers.toFloat(),
-                    onValueChange = { numberOfPlayers = it.toInt() },
+                    onValueChange = { setPlayerCount(it.roundToInt()) },
                     valueRange = 1f..10f,
                     steps = 8,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -223,51 +259,75 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                 Text(text = stringResource(R.string.number_of_moves, selectedGameMode))
                 Slider(
                     value = selectedGameMode.toFloat(),
-                    onValueChange = { selectedGameMode = it.toInt() },
+                    onValueChange = { selectedGameMode = it.roundToInt().coerceIn(1, 20) },
                     valueRange = 1f..20f,
                     steps = 18,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
 
                 Text(text = stringResource(R.string.move_types), modifier = Modifier.padding(top = 8.dp))
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(132.dp),
-                    userScrollEnabled = false,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(moveTypes) { moveType ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 2.dp)
-                                .clickable(
-                                    enabled = moveType.enabled,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    selectedMoveType = moveType.label
-                                },
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Start
-                        ) {
-                            RadioButton(
-                                selected = selectedMoveType == moveType.label,
-                                enabled = moveType.enabled,
-                                onClick = { selectedMoveType = moveType.label }
-                            )
-                            Text(
-                                text = moveType.label,
-                                color = if (moveType.enabled) {
-                                    MaterialTheme.colorScheme.onBackground
-                                } else {
-                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f)
-                                },
-                                fontSize = 14.sp
-                            )
+                    MoveCategoryCard(
+                        text = stringResource(R.string.punch),
+                        selected = selectedCategory == MoveCategory.Punch,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            selectedCategory = MoveCategory.Punch
+                            selectedMoveType = ""
+                        }
+                    )
+                    MoveCategoryCard(
+                        text = stringResource(R.string.kick),
+                        selected = selectedCategory == MoveCategory.Kick,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            selectedCategory = MoveCategory.Kick
+                            selectedMoveType = ""
+                        }
+                    )
+                }
+
+                val visibleOptions = when (selectedCategory) {
+                    MoveCategory.Punch -> punchOptions
+                    MoveCategory.Kick -> kickOptions
+                    null -> emptyList()
+                }
+
+                if (visibleOptions.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        visibleOptions.chunked(2).forEach { rowOptions ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowOptions.forEach { option ->
+                                    FilterChip(
+                                        selected = selectedMoveType == option.label,
+                                        onClick = { selectedMoveType = option.label },
+                                        label = {
+                                            Text(
+                                                text = option.label,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                textAlign = TextAlign.Center
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (rowOptions.size == 1) {
+                                    Box(modifier = Modifier.weight(1f))
+                                }
+                            }
                         }
                     }
                 }
@@ -278,7 +338,7 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
 
                 Button(
                     onClick = {
-                        if (hasDuplicateNames(activePlayerNames)) {
+                        if (hasDuplicateNames(activePlayerNames.map { it.trim() })) {
                             errorMessage = context.getString(R.string.error_duplicate_names)
                             showErrorMessage = true
                         } else {
@@ -337,5 +397,43 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MoveCategoryCard(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
+        border = MaterialBorderStroke(
+            width = 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        )
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 8.dp),
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
