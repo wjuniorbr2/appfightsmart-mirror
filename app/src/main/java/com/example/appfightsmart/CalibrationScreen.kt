@@ -140,15 +140,17 @@ fun CalibrationScreen(
         val file = File(directory, "fight_smart_calibration_$stamp.csv")
         outputPath = file.absolutePath
         val newWriter = BufferedWriter(FileWriter(file, false))
-        newWriter.write("# FightSmart complete punch calibration\n")
+        newWriter.write("# FightSmart maximum raw punch calibration\n")
         newWriter.write("# Created: $stamp\n")
         newWriter.write("# Bag height: 160 cm\n")
         newWriter.write("# Bag elevation from ground: 30 cm\n")
         newWriter.write("# Sensor pipe insertion from top: 80 cm\n")
         newWriter.write("# Estimated sensor height: 80 cm from bag bottom / 110 cm from ground\n")
         newWriter.write("# Stop the bag before each individual punch repetition.\n")
-        newWriter.write("# The file always stores rawHex. Parsed columns are filled when that frame type is emitted by the sensor.\n")
-        newWriter.write("sessionTimeMillis,stepIndex,totalSteps,stepType,move,force,heightCmFromBagBottom,repetitionIndex,totalRepetitions,stepElapsedMillis,frameType,rawHex,accXg,accYg,accZg,accMagnitudeG,temperatureC,gyroXdps,gyroYdps,gyroZdps,gyroMagnitudeDps,angleXdeg,angleYdeg,angleZdeg,tiltMagnitudeDeg,yawCompassDeg,magXraw,magYraw,magZraw,magMagnitudeRaw,magneticCompassDeg,quaternion0,quaternion1,quaternion2,quaternion3,displacementX,displacementY,displacementZ,displacementSpeedX,displacementSpeedY,displacementSpeedZ,portStatusRaw,motionScore\n")
+        newWriter.write("# rawHex and rawByte columns preserve every byte received from the sensor, even if not parsed yet.\n")
+        newWriter.write("# Parsed columns are filled when that frame type is recognized. Empty columns mean not emitted or not decoded yet.\n")
+        newWriter.write(calibrationCsvHeader())
+        newWriter.newLine()
         newWriter.flush()
         return newWriter
     }
@@ -165,6 +167,9 @@ fun CalibrationScreen(
 
     fun writeFrame(bytes: ByteArray, step: CalibrationStep, parsed: ParsedSensorFrame) {
         val stepElapsedMillis = if (stepStartMillis > 0L) System.currentTimeMillis() - stepStartMillis else 0L
+        val rawByteColumns = (0 until RAW_BYTE_COLUMN_COUNT).map { index ->
+            bytes.getOrNull(index)?.let { (it.toInt() and 0xFF).toString() }.orEmpty()
+        }
         val line = listOf(
             System.currentTimeMillis().toString(),
             (currentStepIndex + 1).toString(),
@@ -176,6 +181,7 @@ fun CalibrationScreen(
             step.repetitionIndex.toString(),
             step.totalRepetitions.toString(),
             stepElapsedMillis.toString(),
+            bytes.size.toString(),
             csv(parsed.frameType),
             csv(bytes.toHexString()),
             parsed.accXg?.format6().orEmpty(),
@@ -209,7 +215,7 @@ fun CalibrationScreen(
             parsed.displacementSpeedZ?.format6().orEmpty(),
             parsed.portStatusRaw?.toString().orEmpty(),
             parsed.motionScore?.format6().orEmpty()
-        ).joinToString(",")
+        ).plus(rawByteColumns).joinToString(",")
         synchronized(fileLock) {
             writer?.write(line)
             writer?.newLine()
@@ -275,13 +281,13 @@ fun CalibrationScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Complete punch calibration",
+                text = "Maximum raw punch calibration",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "This records raw sensor frames plus parsed acceleration, gyro, tilt, angles, compass/yaw, magnetometer, temperature, quaternion, displacement, displacement speed, and port-status columns when available.",
+                text = "This records every received byte as rawHex and raw byte columns, plus parsed acceleration, gyro, tilt, angles, compass/yaw, magnetometer, temperature, quaternion, displacement, displacement speed, and port-status columns when available.",
                 textAlign = TextAlign.Center
             )
 
@@ -352,6 +358,7 @@ private fun CalibrationInfoCard() {
             Text("3. Each punch is recorded as its own step: light, medium, and strong force.")
             Text("4. Heights are measured from the bottom of the bag: 80 cm, 100 cm, 120 cm, and 140 cm.")
             Text("5. Stop the bag before each individual punch, not only after a group of three.")
+            Text("6. The CSV keeps rawHex plus raw byte columns so unparsed features are not lost.")
         }
     }
 }
@@ -536,6 +543,59 @@ private fun parseWitFrame(bytes: ByteArray): ParsedSensorFrame {
         0x71 -> ParsedSensorFrame(frameType = "register_return_0x71_raw_saved")
         else -> ParsedSensorFrame(frameType = "wit_0x${(bytes[1].toInt() and 0xFF).toString(16)}_raw_saved")
     }
+}
+
+private const val RAW_BYTE_COLUMN_COUNT = 32
+
+private fun calibrationCsvHeader(): String {
+    val baseColumns = listOf(
+        "sessionTimeMillis",
+        "stepIndex",
+        "totalSteps",
+        "stepType",
+        "move",
+        "force",
+        "heightCmFromBagBottom",
+        "repetitionIndex",
+        "totalRepetitions",
+        "stepElapsedMillis",
+        "rawByteCount",
+        "frameType",
+        "rawHex",
+        "accXg",
+        "accYg",
+        "accZg",
+        "accMagnitudeG",
+        "temperatureC",
+        "gyroXdps",
+        "gyroYdps",
+        "gyroZdps",
+        "gyroMagnitudeDps",
+        "angleXdeg",
+        "angleYdeg",
+        "angleZdeg",
+        "tiltMagnitudeDeg",
+        "yawCompassDeg",
+        "magXraw",
+        "magYraw",
+        "magZraw",
+        "magMagnitudeRaw",
+        "magneticCompassDeg",
+        "quaternion0",
+        "quaternion1",
+        "quaternion2",
+        "quaternion3",
+        "displacementX",
+        "displacementY",
+        "displacementZ",
+        "displacementSpeedX",
+        "displacementSpeedY",
+        "displacementSpeedZ",
+        "portStatusRaw",
+        "motionScore"
+    )
+    val rawColumns = (0 until RAW_BYTE_COLUMN_COUNT).map { index -> "rawByte%02d".format(index) }
+    return (baseColumns + rawColumns).joinToString(",")
 }
 
 private fun ByteArray.toHexString(): String = joinToString(" ") { String.format("%02X", it) }
