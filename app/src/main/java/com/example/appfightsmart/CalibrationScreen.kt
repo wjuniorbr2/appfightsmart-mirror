@@ -81,6 +81,7 @@ private data class ParsedSensorFrame(
     val angleXdeg: Double? = null,
     val angleYdeg: Double? = null,
     val angleZdeg: Double? = null,
+    val tiltMagnitudeDeg: Double? = null,
     val yawCompassDeg: Double? = null,
     val magXraw: Int? = null,
     val magYraw: Int? = null,
@@ -147,7 +148,7 @@ fun CalibrationScreen(
         newWriter.write("# Estimated sensor height: 80 cm from bag bottom / 110 cm from ground\n")
         newWriter.write("# Stop the bag before each individual punch repetition.\n")
         newWriter.write("# The file always stores rawHex. Parsed columns are filled when that frame type is emitted by the sensor.\n")
-        newWriter.write("sessionTimeMillis,stepIndex,totalSteps,stepType,move,force,heightCmFromBagBottom,repetitionIndex,totalRepetitions,stepElapsedMillis,frameType,rawHex,accXg,accYg,accZg,accMagnitudeG,temperatureC,gyroXdps,gyroYdps,gyroZdps,gyroMagnitudeDps,angleXdeg,angleYdeg,angleZdeg,yawCompassDeg,magXraw,magYraw,magZraw,magMagnitudeRaw,magneticCompassDeg,quaternion0,quaternion1,quaternion2,quaternion3,displacementX,displacementY,displacementZ,displacementSpeedX,displacementSpeedY,displacementSpeedZ,portStatusRaw,motionScore\n")
+        newWriter.write("sessionTimeMillis,stepIndex,totalSteps,stepType,move,force,heightCmFromBagBottom,repetitionIndex,totalRepetitions,stepElapsedMillis,frameType,rawHex,accXg,accYg,accZg,accMagnitudeG,temperatureC,gyroXdps,gyroYdps,gyroZdps,gyroMagnitudeDps,angleXdeg,angleYdeg,angleZdeg,tiltMagnitudeDeg,yawCompassDeg,magXraw,magYraw,magZraw,magMagnitudeRaw,magneticCompassDeg,quaternion0,quaternion1,quaternion2,quaternion3,displacementX,displacementY,displacementZ,displacementSpeedX,displacementSpeedY,displacementSpeedZ,portStatusRaw,motionScore\n")
         newWriter.flush()
         return newWriter
     }
@@ -189,6 +190,7 @@ fun CalibrationScreen(
             parsed.angleXdeg?.format6().orEmpty(),
             parsed.angleYdeg?.format6().orEmpty(),
             parsed.angleZdeg?.format6().orEmpty(),
+            parsed.tiltMagnitudeDeg?.format6().orEmpty(),
             parsed.yawCompassDeg?.format6().orEmpty(),
             parsed.magXraw?.toString().orEmpty(),
             parsed.magYraw?.toString().orEmpty(),
@@ -279,7 +281,7 @@ fun CalibrationScreen(
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "This records raw sensor frames plus parsed acceleration, gyro, angles, compass/yaw, magnetometer, temperature, quaternion, displacement, displacement speed, and port-status columns when available.",
+                text = "This records raw sensor frames plus parsed acceleration, gyro, tilt, angles, compass/yaw, magnetometer, temperature, quaternion, displacement, displacement speed, and port-status columns when available.",
                 textAlign = TextAlign.Center
             )
 
@@ -495,11 +497,13 @@ private fun parseWitFrame(bytes: ByteArray): ParsedSensorFrame {
             val roll = s16(2) / 32768.0 * 180.0
             val pitch = s16(4) / 32768.0 * 180.0
             val yaw = s16(6) / 32768.0 * 180.0
+            val tilt = sqrt(roll * roll + pitch * pitch)
             ParsedSensorFrame(
-                frameType = "angle_yaw_compass",
+                frameType = "tilt_angle_yaw_compass",
                 angleXdeg = roll,
                 angleYdeg = pitch,
                 angleZdeg = yaw,
+                tiltMagnitudeDeg = tilt,
                 yawCompassDeg = normalizedHeading(yaw)
             )
         }
