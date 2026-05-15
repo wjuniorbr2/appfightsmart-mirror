@@ -98,6 +98,12 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
     var focusedPlayerIndex by remember { mutableStateOf<Int?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
+    fun getPlayerName(index: Int): String = playerNames.getOrElse(index) { "" }
+    fun setPlayerName(index: Int, value: String) {
+        while (playerNames.size <= index) playerNames.add("")
+        playerNames[index] = value
+    }
+
     LaunchedEffect(scrollState.isScrollInProgress) {
         if (scrollState.isScrollInProgress) {
             keyboardController?.hide()
@@ -159,9 +165,9 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                         for (i in 0 until numberOfPlayers) {
                             Column(Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
-                                    value = playerNames[i],
+                                    value = getPlayerName(i),
                                     onValueChange = {
-                                        playerNames[i] = it
+                                        setPlayerName(i, it)
                                         focusedPlayerIndex = i
                                         loadPlayerSuggestions(i, it)
                                     },
@@ -182,7 +188,7 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                                         if (state.isFocused) {
                                             focusedPlayerIndex = i
                                             keyboardController?.show()
-                                            loadPlayerSuggestions(i, playerNames[i])
+                                            loadPlayerSuggestions(i, getPlayerName(i))
                                         }
                                     }
                                 )
@@ -191,7 +197,7 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 120.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(8.dp))) {
                                         items(currentSearchResults) { player ->
                                             Text(player.playerName, color = Color.White, modifier = Modifier.fillMaxWidth().clickable {
-                                                playerNames[i] = player.playerName
+                                                setPlayerName(i, player.playerName)
                                                 searchResults[i] = emptyList()
                                                 focusedPlayerIndex = null
                                                 focusManager.clearFocus()
@@ -231,7 +237,7 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                     }
                 }
 
-                val activePlayerNames = playerNames.take(numberOfPlayers)
+                val activePlayerNames = (0 until numberOfPlayers).map { getPlayerName(it) }
                 val isFormValid = activePlayerNames.none { it.isBlank() } && selectedMoveType.isNotBlank()
                 val context = LocalContext.current
                 SetupSummaryCard(numberOfPlayers, selectedGameMode, selectedMoveType, Modifier.fillMaxWidth().padding(top = 12.dp))
