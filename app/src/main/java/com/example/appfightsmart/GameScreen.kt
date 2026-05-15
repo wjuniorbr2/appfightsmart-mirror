@@ -190,7 +190,7 @@ fun GameScreen(
         previousAngleMagnitude = angleMagnitude
 
         overlayBagSwing = (0.82f * overlayBagSwing + 0.18f * (-rollDelta * 5.2f)).coerceIn(-58f, 58f)
-        overlayBagDepth = (0.86f * overlayBagDepth + 0.14f * (pitchDelta / 70f)).coerceIn(-0.28f, 0.28f)
+        overlayBagDepth = (0.78f * overlayBagDepth + 0.22f * (pitchDelta / 28f)).coerceIn(-0.42f, 0.42f)
 
         val angleMotion = maxOf(angleMagnitude, angleDelta * 4f)
         val direction = directionOf(rollDelta, 0.25f)
@@ -205,7 +205,7 @@ fun GameScreen(
         currentForceG = totalG
 
         overlayBagSwing = (0.70f * overlayBagSwing + 0.30f * (lx * 80f)).coerceIn(-58f, 58f)
-        overlayBagDepth = (0.72f * overlayBagDepth + 0.28f * (lz * 0.28f)).coerceIn(-0.28f, 0.28f)
+        overlayBagDepth = (0.70f * overlayBagDepth + 0.30f * (lz * 0.45f)).coerceIn(-0.42f, 0.42f)
 
         val looksLikePunch = totalG > hitThresholdG && deltaG > hitDeltaThresholdG
         val canRecordStrike = !isPreparing && !isBagSwinging && !hitCaptured
@@ -441,12 +441,15 @@ private fun StopBagOverlay(bagSwing: Float, bagDepth: Float) {
                     painterResource(R.drawable.punching_bag_and_chain),
                     contentDescription = "Swinging punching bag",
                     modifier = Modifier.size(width = 190.dp, height = 360.dp).graphicsLayer {
+                        val depth = bagDepth.coerceIn(-0.42f, 0.42f)
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
                         rotationZ = bagSwing.coerceIn(-58f, 58f)
                         rotationY = (bagSwing * 0.22f).coerceIn(-14f, 14f)
+                        rotationX = (-depth * 36f).coerceIn(-18f, 18f)
                         cameraDistance = 18f * density
-                        scaleX = 1f + bagDepth.coerceIn(-0.28f, 0.28f)
-                        scaleY = 1f + bagDepth.coerceIn(-0.22f, 0.22f) * 0.65f
+                        scaleX = 1f + depth * 0.42f
+                        scaleY = 1f + depth * 0.28f
+                        translationY = depth * 34f
                     }
                 )
                 Text(
@@ -501,22 +504,24 @@ private fun CompactStatRow(label: String, value: String, accent: Boolean = false
 
 @Composable
 private fun ScoreboardPanel(playerList: List<String>, currentPlayer: Int, currentHitScore: Float?, modifier: Modifier = Modifier) {
+    val fourPlayers = playerList.size == 4
     val compact = playerList.size >= 5
     val veryCompact = playerList.size >= 6
-    val rowPaddingV = if (veryCompact) 0.dp else if (compact) 1.dp else 5.dp
-    val rowPaddingH = if (compact) 4.dp else 6.dp
-    val headerBottomPadding = if (compact) 0.dp else 4.dp
-    val nameFont = if (veryCompact) 9.sp else if (compact) 10.sp else 15.sp
-    val scoreFont = if (veryCompact) 11.sp else if (compact) 12.sp else 17.sp
-    val headerFont = if (veryCompact) 8.sp else if (compact) 9.sp else 12.sp
+    val rowPaddingV = if (veryCompact) 0.dp else if (compact) 1.dp else if (fourPlayers) 1.dp else 5.dp
+    val rowPaddingH = if (compact || fourPlayers) 4.dp else 6.dp
+    val headerBottomPadding = if (compact || fourPlayers) 0.dp else 4.dp
+    val panelVerticalPadding = if (veryCompact) 1.dp else if (compact) 2.dp else if (fourPlayers) 4.dp else 9.dp
+    val nameFont = if (veryCompact) 8.sp else if (compact) 10.sp else if (fourPlayers) 12.sp else 15.sp
+    val scoreFont = if (veryCompact) 10.sp else if (compact) 12.sp else if (fourPlayers) 14.sp else 17.sp
+    val headerFont = if (veryCompact) 7.sp else if (compact) 9.sp else if (fourPlayers) 10.sp else 12.sp
     MetallicPanel(modifier, 18) {
-        Column(Modifier.padding(horizontal = if (compact) 5.dp else 8.dp, vertical = if (compact) 3.dp else 9.dp)) {
+        Column(Modifier.padding(horizontal = if (compact || fourPlayers) 5.dp else 8.dp, vertical = panelVerticalPadding)) {
             Text(stringResource(R.string.scoreboard).uppercase(), color = Color.White.copy(alpha = 0.72f), fontSize = headerFont, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = headerBottomPadding))
             playerList.forEachIndexed { index, name ->
                 val shownScore = if (index == currentPlayer && currentHitScore != null) currentHitScore.roundToInt().toString() else "--"
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (index == currentPlayer) Color(0x33FF3B30) else Color.Transparent).padding(horizontal = rowPaddingH, vertical = rowPaddingV), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(name, color = Color.White, fontSize = nameFont, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(shownScore, color = if (shownScore != "--") Color(0xFFFF5A4E) else Color.White.copy(alpha = 0.55f), fontSize = scoreFont, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 4.dp))
+                    Text(name, color = Color.White, fontSize = nameFont, fontWeight = FontWeight.Bold, maxLines = 1, lineHeight = nameFont, modifier = Modifier.weight(1f))
+                    Text(shownScore, color = if (shownScore != "--") Color(0xFFFF5A4E) else Color.White.copy(alpha = 0.55f), fontSize = scoreFont, fontWeight = FontWeight.Black, lineHeight = scoreFont, modifier = Modifier.padding(start = 4.dp))
                 }
             }
         }
