@@ -30,8 +30,12 @@
 
     <string name="app_name">Fight Smart</string>
     <string name="game_setup">Configuração do jogo</string>
+    <string name="quick_game_setup">Configuração do jogo rápido</string>
+    <string name="prepare_match">Prepare-se para a partida</string>
     <string name="back">Voltar</string>
     <string name="number_of_players">Número de jogadores: %d</string>
+    <string name="number_of_players_plain">Número de jogadores</string>
+    <string name="number_of_moves_plain">Número de movimentos</string>
     <string name="player_number">Jogador %d: %s</string>
     <string name="player_number_short">Jogador %d</string>
     <string name="name">Nome</string>
@@ -51,6 +55,21 @@
     <string name="rib_kick">Chute nas costelas</string>
     <string name="head_kick">Chute na cabeça</string>
     <string name="start_game">Iniciar jogo</string>
+
+    <string name="players">Jogadores</string>
+    <string name="moves">Movimentos</string>
+    <string name="types">Tipos</string>
+    <string name="current_player">Jogador</string>
+    <string name="move">Movimento</string>
+    <string name="hit_detected">Golpe detectado</string>
+    <string name="recovering">Recuperando</string>
+    <string name="ready">Pronto</string>
+    <string name="power">Potência</string>
+    <string name="best_hit">Melhor golpe</string>
+    <string name="peak_g">Pico g</string>
+    <string name="last_hit">Último golpe</string>
+    <string name="scoreboard">Placar</string>
+    <string name="force_label">Força</string>
 
     <string name="error_duplicate_names">Os nomes dos jogadores precisam ser diferentes.</string>
     <string name="error_generic">Ocorreu um erro. Por favor, tente novamente.</string>
