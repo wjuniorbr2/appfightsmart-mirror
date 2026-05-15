@@ -56,6 +56,13 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
+private enum class CalibrationPlan(val label: String, val fileLabel: String, val moves: List<String>) {
+    JabOnly("Jab only", "jab", listOf("Jab")),
+    CrossOnly("Cross only", "cross", listOf("Cross")),
+    HookOnly("Hook only", "hook", listOf("Hook")),
+    AllPunches("All punches", "all_punches", listOf("Jab", "Cross", "Hook"))
+}
+
 private data class CalibrationStep(
     val type: String,
     val move: String,
@@ -109,7 +116,8 @@ fun CalibrationScreen(
     bluetoothManager: BluetoothManager
 ) {
     val context = LocalContext.current
-    val steps = remember { buildPunchCalibrationSteps() }
+    var selectedPlan by remember { mutableStateOf<CalibrationPlan?>(null) }
+    val steps = remember(selectedPlan) { selectedPlan?.let { buildPunchCalibrationSteps(it) }.orEmpty() }
     val fileLock = remember { Any() }
     var writer by remember { mutableStateOf<BufferedWriter?>(null) }
     var outputPath by remember { mutableStateOf<String?>(null) }
@@ -120,8 +128,10 @@ fun CalibrationScreen(
     var secondsLeft by remember { mutableIntStateOf(0) }
     var stepStartMillis by remember { mutableLongStateOf(0L) }
     var frameCount by remember { mutableIntStateOf(0) }
+    var totalRowsWritten by remember { mutableIntStateOf(0) }
     var lastFrameSummary by remember { mutableStateOf("Waiting for sensor data...") }
     var lastMotionScore by remember { mutableStateOf<Double?>(null) }
+    var fileError by remember { mutableStateOf<String?>(null) }
 
     val currentStep = steps.getOrNull(currentStepIndex)
 
@@ -133,20 +143,21 @@ fun CalibrationScreen(
         }
     }
 
-    fun createCalibrationFile(): BufferedWriter {
+    fun createCalibrationFile(plan: CalibrationPlan): BufferedWriter {
         val directory = File(context.getExternalFilesDir(null), "calibration")
         if (!directory.exists()) directory.mkdirs()
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file = File(directory, "fight_smart_calibration_$stamp.csv")
+        val file = File(directory, "fight_smart_calibration_${plan.fileLabel}_$stamp.csv")
         outputPath = file.absolutePath
         val newWriter = BufferedWriter(FileWriter(file, false))
         newWriter.write("# FightSmart maximum raw punch calibration\n")
         newWriter.write("# Created: $stamp\n")
+        newWriter.write("# Calibration plan: ${plan.label}\n")
         newWriter.write("# Bag height: 160 cm\n")
-        newWriter.write("# Bag elevation from ground: 30 cm\n")
+        newWriter.write("# Bag elevation from ground: user corrected to about 40+ cm\n")
         newWriter.write("# Sensor pipe insertion from top: 80 cm\n")
-        newWriter.write("# Estimated sensor height: 80 cm from bag bottom / 110 cm from ground\n")
-        newWriter.write("# Stop the bag before each individual punch repetition.\n")
+        newWriter.write("# Estimated sensor height: 80 cm from bag bottom / about 120+ cm from ground with corrected bag elevation\n")
+        newWriter.write("# Stop the bag before each individual punch repetition. Let it swing until recording ends.\n")
         newWriter.write("# rawHex and rawByte columns preserve every byte received from the sensor, even if not parsed yet.\n")
         newWriter.write("# Parsed columns are filled when that frame type is recognized. Empty columns mean not emitted or not decoded yet.\n")
         newWriter.write(calibrationCsvHeader())
@@ -155,13 +166,15 @@ fun CalibrationScreen(
         return newWriter
     }
 
-    fun startSession() {
+    fun startSession(plan: CalibrationPlan) {
         closeWriter()
-        writer = createCalibrationFile()
+        writer = createCalibrationFile(plan)
         started = true
         finished = false
         currentStepIndex = 0
         frameCount = 0
+        totalRowsWritten = 0
+        fileError = null
         lastFrameSummary = "File created. Start the first step."
     }
 
@@ -217,8 +230,44 @@ fun CalibrationScreen(
             parsed.motionScore?.format6().orEmpty()
         ).plus(rawByteColumns).joinToString(",")
         synchronized(fileLock) {
-            writer?.write(line)
-            writer?.newLine()
+            try {
+                writer?.write(line)
+                writer?.newLine()
+                writer?.flush()
+                totalRowsWritten += 1
+            } catch (e: Exception) {
+                fileError = e.message ?: "Unknown file write error"
+                isRecording = false
+            }
+        }
+    }
+
+    fun writeStepMarker(marker: String, step: CalibrationStep?) {
+        val activeStep = step ?: return
+        val rawByteColumns = List(RAW_BYTE_COLUMN_COUNT) { "" }
+        val line = listOf(
+            System.currentTimeMillis().toString(),
+            (currentStepIndex + 1).toString(),
+            steps.size.toString(),
+            csv(activeStep.type),
+            csv(activeStep.move),
+            csv(activeStep.force),
+            activeStep.heightCmFromBagBottom.toString(),
+            activeStep.repetitionIndex.toString(),
+            activeStep.totalRepetitions.toString(),
+            if (stepStartMillis > 0L) (System.currentTimeMillis() - stepStartMillis).toString() else "0",
+            "0",
+            csv(marker),
+            csv("")
+        ).plus(List(31) { "" }).plus(rawByteColumns).joinToString(",")
+        synchronized(fileLock) {
+            try {
+                writer?.write(line)
+                writer?.newLine()
+                writer?.flush()
+            } catch (e: Exception) {
+                fileError = e.message ?: "Unknown file write error"
+            }
         }
     }
 
@@ -229,7 +278,7 @@ fun CalibrationScreen(
                 writeFrame(bytes, currentStep, parsed)
                 frameCount += 1
                 lastMotionScore = parsed.motionScore
-                lastFrameSummary = "Last frame: ${parsed.frameType} | frames saved: $frameCount"
+                lastFrameSummary = "Last frame: ${parsed.frameType} | step frames: $frameCount | total rows: $totalRowsWritten"
             }
         }
         bluetoothManager.addDataListener(listener)
@@ -248,7 +297,7 @@ fun CalibrationScreen(
             secondsLeft -= 1
             if (secondsLeft <= 0) {
                 isRecording = false
-                synchronized(fileLock) { writer?.flush() }
+                writeStepMarker("STEP_END", currentStep)
                 if (currentStepIndex >= steps.lastIndex) {
                     finished = true
                     closeWriter()
@@ -287,23 +336,42 @@ fun CalibrationScreen(
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "This records every received byte as rawHex and raw byte columns, plus parsed acceleration, gyro, tilt, angles, compass/yaw, magnetometer, temperature, quaternion, displacement, displacement speed, and port-status columns when available.",
+                text = "Choose a smaller file per move, or run all punches. Every received byte is stored as rawHex and raw byte columns.",
                 textAlign = TextAlign.Center
             )
 
             if (!started) {
                 CalibrationInfoCard()
-                Button(onClick = { startSession() }) {
-                    Text("Create file and start calibration")
+                CalibrationPlanSelector(
+                    selectedPlan = selectedPlan,
+                    onSelect = { selectedPlan = it }
+                )
+                Button(
+                    enabled = selectedPlan != null,
+                    onClick = { selectedPlan?.let { startSession(it) } }
+                ) {
+                    Text("Create file and start selected calibration")
                 }
             } else if (finished) {
                 Text("Calibration finished.", fontWeight = FontWeight.Bold)
                 Text("Saved file:", fontWeight = FontWeight.Bold)
                 Text(outputPath ?: "Unknown path", textAlign = TextAlign.Center)
-                Button(onClick = { startSession() }) {
-                    Text("Start another calibration file")
+                Text("Rows written: $totalRowsWritten", fontWeight = FontWeight.Bold)
+                Button(onClick = {
+                    started = false
+                    finished = false
+                    selectedPlan = null
+                    outputPath = null
+                    currentStepIndex = 0
+                    frameCount = 0
+                    totalRowsWritten = 0
+                }) {
+                    Text("Choose another calibration")
                 }
             } else if (currentStep != null) {
+                selectedPlan?.let {
+                    Text("Plan: ${it.label} | Steps: ${steps.size}", fontWeight = FontWeight.Bold)
+                }
                 StepCard(
                     step = currentStep,
                     currentStepNumber = currentStepIndex + 1,
@@ -311,19 +379,22 @@ fun CalibrationScreen(
                     isRecording = isRecording,
                     secondsLeft = secondsLeft,
                     frameCount = frameCount,
+                    totalRowsWritten = totalRowsWritten,
                     lastFrameSummary = lastFrameSummary,
-                    lastMotionScore = lastMotionScore
+                    lastMotionScore = lastMotionScore,
+                    fileError = fileError
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
-                        enabled = !isRecording,
+                        enabled = !isRecording && fileError == null,
                         onClick = {
                             frameCount = 0
                             lastFrameSummary = "Recording..."
                             stepStartMillis = System.currentTimeMillis()
+                            writeStepMarker("STEP_START", currentStep)
                             secondsLeft = currentStep.durationSeconds
                             isRecording = true
                         }
@@ -333,6 +404,7 @@ fun CalibrationScreen(
                     OutlinedButton(
                         enabled = !isRecording,
                         onClick = {
+                            writeStepMarker("STEP_SKIPPED", currentStep)
                             if (currentStepIndex < steps.lastIndex) currentStepIndex += 1 else finished = true
                         }
                     ) {
@@ -346,6 +418,38 @@ fun CalibrationScreen(
 }
 
 @Composable
+private fun CalibrationPlanSelector(
+    selectedPlan: CalibrationPlan?,
+    onSelect: (CalibrationPlan) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("Calibration file type", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            CalibrationPlanButton(CalibrationPlan.JabOnly, selectedPlan, onSelect, Modifier.weight(1f))
+            CalibrationPlanButton(CalibrationPlan.CrossOnly, selectedPlan, onSelect, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            CalibrationPlanButton(CalibrationPlan.HookOnly, selectedPlan, onSelect, Modifier.weight(1f))
+            CalibrationPlanButton(CalibrationPlan.AllPunches, selectedPlan, onSelect, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun CalibrationPlanButton(
+    plan: CalibrationPlan,
+    selectedPlan: CalibrationPlan?,
+    onSelect: (CalibrationPlan) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (selectedPlan == plan) {
+        Button(onClick = { onSelect(plan) }, modifier = modifier) { Text(plan.label, textAlign = TextAlign.Center) }
+    } else {
+        OutlinedButton(onClick = { onSelect(plan) }, modifier = modifier) { Text(plan.label, textAlign = TextAlign.Center) }
+    }
+}
+
+@Composable
 private fun CalibrationInfoCard() {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -353,11 +457,11 @@ private fun CalibrationInfoCard() {
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Test plan", fontWeight = FontWeight.Bold)
-            Text("1. First record a still-bag baseline.")
-            Text("2. Then follow the prompts for jab, cross, and hook.")
+            Text("1. Prefer one move per file: Jab only, Cross only, then Hook only.")
+            Text("2. Full calibration is still available, but it creates a much larger file.")
             Text("3. Each punch is recorded as its own step: light, medium, and strong force.")
             Text("4. Heights are measured from the bottom of the bag: 80 cm, 100 cm, 120 cm, and 140 cm.")
-            Text("5. Stop the bag before each individual punch, not only after a group of three.")
+            Text("5. Stop the bag before each individual punch. After punching, let it swing until recording ends.")
             Text("6. The CSV keeps rawHex plus raw byte columns so unparsed features are not lost.")
         }
     }
@@ -371,8 +475,10 @@ private fun StepCard(
     isRecording: Boolean,
     secondsLeft: Int,
     frameCount: Int,
+    totalRowsWritten: Int,
     lastFrameSummary: String,
-    lastMotionScore: Double?
+    lastMotionScore: Double?,
+    fileError: String?
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -395,27 +501,23 @@ private fun StepCard(
                 Text("Repetition: ${step.repetitionIndex} of ${step.totalRepetitions}")
             }
             if (isRecording) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(
-                        text = "Recording... $secondsLeft s left",
-                        modifier = Modifier.padding(10.dp),
-                        fontWeight = FontWeight.Bold
-                    )
+                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp)) {
+                    Text(text = "Recording... $secondsLeft s left", modifier = Modifier.padding(10.dp), fontWeight = FontWeight.Bold)
                 }
             } else {
                 Text("Before pressing record, stop the bag and stand in your normal fighting position.")
             }
             Text(lastFrameSummary, fontSize = 12.sp)
+            Text("Step frames: $frameCount | Total rows: $totalRowsWritten", fontSize = 12.sp)
             Text("Motion score: ${lastMotionScore?.format3() ?: "--"}", fontSize = 12.sp)
-            Text("Frames in this step: $frameCount", fontSize = 12.sp)
+            if (fileError != null) {
+                Text("File error: $fileError", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
 
-private fun buildPunchCalibrationSteps(): List<CalibrationStep> {
+private fun buildPunchCalibrationSteps(plan: CalibrationPlan): List<CalibrationStep> {
     val steps = mutableListOf<CalibrationStep>()
     steps += CalibrationStep(
         type = "baseline",
@@ -428,13 +530,12 @@ private fun buildPunchCalibrationSteps(): List<CalibrationStep> {
         instruction = "Please stop the bag. Record the still bag baseline."
     )
 
-    val moves = listOf("Jab", "Cross", "Hook")
     val heights = listOf(80, 100, 120, 140)
     val forces = listOf("light", "medium", "strong")
     val totalRepetitions = 3
 
     for (height in heights) {
-        for (move in moves) {
+        for (move in plan.moves) {
             for (force in forces) {
                 for (rep in 1..totalRepetitions) {
                     steps += CalibrationStep(
@@ -476,43 +577,21 @@ private fun parseWitFrame(bytes: ByteArray): ParsedSensorFrame {
             val az = s16(6) / 32768.0 * 16.0
             val temp = s16(8) / 100.0
             val magnitude = sqrt(ax * ax + ay * ay + az * az)
-            ParsedSensorFrame(
-                frameType = "acceleration_temperature",
-                accXg = ax,
-                accYg = ay,
-                accZg = az,
-                accMagnitudeG = magnitude,
-                temperatureC = temp,
-                motionScore = abs(ax) + abs(ay) + abs(az)
-            )
+            ParsedSensorFrame("acceleration_temperature", ax, ay, az, magnitude, temp, motionScore = abs(ax) + abs(ay) + abs(az))
         }
         0x52 -> {
             val gx = s16(2) / 32768.0 * 2000.0
             val gy = s16(4) / 32768.0 * 2000.0
             val gz = s16(6) / 32768.0 * 2000.0
             val magnitude = sqrt(gx * gx + gy * gy + gz * gz)
-            ParsedSensorFrame(
-                frameType = "gyroscope",
-                gyroXdps = gx,
-                gyroYdps = gy,
-                gyroZdps = gz,
-                gyroMagnitudeDps = magnitude,
-                motionScore = abs(gx) + abs(gy) + abs(gz)
-            )
+            ParsedSensorFrame(frameType = "gyroscope", gyroXdps = gx, gyroYdps = gy, gyroZdps = gz, gyroMagnitudeDps = magnitude, motionScore = abs(gx) + abs(gy) + abs(gz))
         }
         0x53 -> {
             val roll = s16(2) / 32768.0 * 180.0
             val pitch = s16(4) / 32768.0 * 180.0
             val yaw = s16(6) / 32768.0 * 180.0
             val tilt = sqrt(roll * roll + pitch * pitch)
-            ParsedSensorFrame(
-                frameType = "tilt_angle_yaw_compass",
-                angleXdeg = roll,
-                angleYdeg = pitch,
-                angleZdeg = yaw,
-                tiltMagnitudeDeg = tilt,
-                yawCompassDeg = normalizedHeading(yaw)
-            )
+            ParsedSensorFrame(frameType = "tilt_angle_yaw_compass", angleXdeg = roll, angleYdeg = pitch, angleZdeg = yaw, tiltMagnitudeDeg = tilt, yawCompassDeg = normalizedHeading(yaw))
         }
         0x54 -> {
             val mx = s16(2)
@@ -520,22 +599,9 @@ private fun parseWitFrame(bytes: ByteArray): ParsedSensorFrame {
             val mz = s16(6)
             val magMagnitude = sqrt((mx * mx + my * my + mz * mz).toDouble())
             val heading = normalizedHeading(atan2(my.toDouble(), mx.toDouble()) * 180.0 / PI)
-            ParsedSensorFrame(
-                frameType = "magnetometer_magnetic_compass",
-                magXraw = mx,
-                magYraw = my,
-                magZraw = mz,
-                magMagnitudeRaw = magMagnitude,
-                magneticCompassDeg = heading
-            )
+            ParsedSensorFrame(frameType = "magnetometer_magnetic_compass", magXraw = mx, magYraw = my, magZraw = mz, magMagnitudeRaw = magMagnitude, magneticCompassDeg = heading)
         }
-        0x59 -> ParsedSensorFrame(
-            frameType = "quaternion_possible",
-            quaternion0 = s16(2) / 32768.0,
-            quaternion1 = s16(4) / 32768.0,
-            quaternion2 = s16(6) / 32768.0,
-            quaternion3 = s16(8) / 32768.0
-        )
+        0x59 -> ParsedSensorFrame(frameType = "quaternion_possible", quaternion0 = s16(2) / 32768.0, quaternion1 = s16(4) / 32768.0, quaternion2 = s16(6) / 32768.0, quaternion3 = s16(8) / 32768.0)
         0x61 -> ParsedSensorFrame(frameType = "combined_0x61_raw_saved")
         0x62 -> ParsedSensorFrame(frameType = "combined_0x62_raw_saved")
         0x63 -> ParsedSensorFrame(frameType = "combined_0x63_raw_saved")
@@ -549,50 +615,13 @@ private const val RAW_BYTE_COLUMN_COUNT = 32
 
 private fun calibrationCsvHeader(): String {
     val baseColumns = listOf(
-        "sessionTimeMillis",
-        "stepIndex",
-        "totalSteps",
-        "stepType",
-        "move",
-        "force",
-        "heightCmFromBagBottom",
-        "repetitionIndex",
-        "totalRepetitions",
-        "stepElapsedMillis",
-        "rawByteCount",
-        "frameType",
-        "rawHex",
-        "accXg",
-        "accYg",
-        "accZg",
-        "accMagnitudeG",
-        "temperatureC",
-        "gyroXdps",
-        "gyroYdps",
-        "gyroZdps",
-        "gyroMagnitudeDps",
-        "angleXdeg",
-        "angleYdeg",
-        "angleZdeg",
-        "tiltMagnitudeDeg",
-        "yawCompassDeg",
-        "magXraw",
-        "magYraw",
-        "magZraw",
-        "magMagnitudeRaw",
-        "magneticCompassDeg",
-        "quaternion0",
-        "quaternion1",
-        "quaternion2",
-        "quaternion3",
-        "displacementX",
-        "displacementY",
-        "displacementZ",
-        "displacementSpeedX",
-        "displacementSpeedY",
-        "displacementSpeedZ",
-        "portStatusRaw",
-        "motionScore"
+        "sessionTimeMillis", "stepIndex", "totalSteps", "stepType", "move", "force", "heightCmFromBagBottom",
+        "repetitionIndex", "totalRepetitions", "stepElapsedMillis", "rawByteCount", "frameType", "rawHex",
+        "accXg", "accYg", "accZg", "accMagnitudeG", "temperatureC", "gyroXdps", "gyroYdps", "gyroZdps", "gyroMagnitudeDps",
+        "angleXdeg", "angleYdeg", "angleZdeg", "tiltMagnitudeDeg", "yawCompassDeg", "magXraw", "magYraw", "magZraw",
+        "magMagnitudeRaw", "magneticCompassDeg", "quaternion0", "quaternion1", "quaternion2", "quaternion3",
+        "displacementX", "displacementY", "displacementZ", "displacementSpeedX", "displacementSpeedY", "displacementSpeedZ",
+        "portStatusRaw", "motionScore"
     )
     val rawColumns = (0 until RAW_BYTE_COLUMN_COUNT).map { index -> "rawByte%02d".format(index) }
     return (baseColumns + rawColumns).joinToString(",")
