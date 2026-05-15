@@ -4,6 +4,7 @@
     <string name="stop_the_bag">Pare o saco!</string>
     <string name="force">Força: %.2f</string>
     <string name="next_move">Próximo movimento</string>
+    <string name="end_game">Encerrar jogo</string>
     <string name="final_scores">Pontuação final</string>
     <string name="winner">Vencedor: %s</string>
 
@@ -70,6 +71,8 @@
     <string name="last_hit">Último golpe</string>
     <string name="scoreboard">Placar</string>
     <string name="force_label">Força</string>
+    <string name="hit_number">Golpe %d</string>
+    <string name="total">Total</string>
 
     <string name="error_duplicate_names">Os nomes dos jogadores precisam ser diferentes.</string>
     <string name="error_generic">Ocorreu um erro. Por favor, tente novamente.</string>
