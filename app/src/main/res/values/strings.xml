@@ -4,6 +4,7 @@
     <string name="stop_the_bag">Stop the bag!</string>
     <string name="force">Force: %.2f</string>
     <string name="next_move">Next Move</string>
+    <string name="end_game">End Game</string>
     <string name="final_scores">Final Scores</string>
     <string name="winner">Winner: %s</string>
 
@@ -70,6 +71,8 @@
     <string name="last_hit">Last hit</string>
     <string name="scoreboard">Scoreboard</string>
     <string name="force_label">Force</string>
+    <string name="hit_number">Hit %d</string>
+    <string name="total">Total</string>
 
     <string name="error_duplicate_names">The player names need to be different.</string>
     <string name="error_generic">An error occurred. Please try again.</string>
