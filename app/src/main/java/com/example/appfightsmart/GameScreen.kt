@@ -73,6 +73,7 @@ fun GameScreen(
 
     var isPreparing by remember { mutableStateOf(true) }
     var isBagSwinging by remember { mutableStateOf(false) }
+    var movingSampleCount by remember { mutableIntStateOf(0) }
     var stillSampleCount by remember { mutableIntStateOf(0) }
     var hitCaptured by remember { mutableStateOf(false) }
     var currentForceG by remember { mutableFloatStateOf(0f) }
@@ -91,9 +92,10 @@ fun GameScreen(
     val alpha = 0.96f
     val hitThresholdG = 1.15f
     val hitDeltaThresholdG = 0.38f
-    val swingStartThresholdG = 0.42f
-    val stillThresholdG = 0.22f
-    val stillSamplesRequired = 8
+    val swingStartThresholdG = 0.18f
+    val stillThresholdG = 0.10f
+    val movingSamplesRequired = 3
+    val stillSamplesRequired = 12
 
     fun toShortLE(lo: Byte, hi: Byte): Short {
         val u = ((hi.toInt() and 0xFF) shl 8) or (lo.toInt() and 0xFF)
@@ -121,31 +123,42 @@ fun GameScreen(
         previousMotionG = totalG
         currentForceG = totalG
 
-        overlayBagSwing = (0.76f * overlayBagSwing + 0.24f * (lx * 32f)).coerceIn(-48f, 48f)
-        overlayBagDepth = (0.80f * overlayBagDepth + 0.20f * (lz * 0.18f)).coerceIn(-0.22f, 0.22f)
+        overlayBagSwing = (0.70f * overlayBagSwing + 0.30f * (lx * 80f)).coerceIn(-58f, 58f)
+        overlayBagDepth = (0.72f * overlayBagDepth + 0.28f * (lz * 0.28f)).coerceIn(-0.28f, 0.28f)
 
-        if (!hitCaptured) {
-            if (totalG > swingStartThresholdG) {
-                isBagSwinging = true
-                stillSampleCount = 0
-            } else if (totalG < stillThresholdG) {
-                stillSampleCount++
-                if (stillSampleCount >= stillSamplesRequired) {
-                    isBagSwinging = false
-                }
-            } else {
-                stillSampleCount = 0
-            }
-        }
-
+        val looksLikePunch = totalG > hitThresholdG && deltaG > hitDeltaThresholdG
         val canRecordStrike = !isPreparing && !isBagSwinging && !hitCaptured
-        if (canRecordStrike && totalG > hitThresholdG && deltaG > hitDeltaThresholdG) {
+
+        // A punch-like spike has priority over the swing warning. Otherwise the app can show
+        // Stop the bag exactly when the player actually punches.
+        if (canRecordStrike && looksLikePunch) {
             capturedPeakG = totalG
             capturedScore = (totalG * 65f).coerceIn(1f, 999f)
             if (capturedScore > bestHit) bestHit = capturedScore
             hitCaptured = true
             isBagSwinging = false
+            movingSampleCount = 0
             stillSampleCount = 0
+            return
+        }
+
+        if (!hitCaptured) {
+            if (totalG > swingStartThresholdG) {
+                movingSampleCount++
+                stillSampleCount = 0
+                if (movingSampleCount >= movingSamplesRequired) {
+                    isBagSwinging = true
+                }
+            } else if (totalG < stillThresholdG) {
+                stillSampleCount++
+                movingSampleCount = 0
+                if (stillSampleCount >= stillSamplesRequired) {
+                    isBagSwinging = false
+                }
+            } else {
+                movingSampleCount = 0
+                stillSampleCount = 0
+            }
         }
     }
 
@@ -187,11 +200,13 @@ fun GameScreen(
 
     LaunchedEffect(currentPlayer, currentMove) {
         isPreparing = true
+        isBagSwinging = false
         hitCaptured = false
         currentForceG = 0f
         capturedPeakG = 0f
         capturedScore = 0f
         previousMotionG = 0f
+        movingSampleCount = 0
         stillSampleCount = 0
         delay(650L)
         isPreparing = false
@@ -232,7 +247,7 @@ fun GameScreen(
 
                     Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                            StaticBagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, modifier = Modifier.fillMaxWidth().weight(1f))
+                            GameInfoPanel(modifier = Modifier.fillMaxWidth().weight(1f), hitCaptured = hitCaptured, forceFill = forceFill)
                             PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
                             ScoreboardPanel(playerList = safePlayerList, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
                         }
@@ -263,9 +278,9 @@ fun GameScreen(
 @Composable
 private fun FightSmartGameBackground() {
     Box(Modifier.fillMaxSize()) {
-        Image(painterResource(R.drawable.frame_fight), stringResource(R.string.frame_image), Modifier.fillMaxSize().blur(5.dp), contentScale = ContentScale.FillBounds)
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.58f)))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.20f), Color(0xAA080A0D), Color.Black.copy(alpha = 0.62f)))))
+        Image(painterResource(R.drawable.frame_fight), stringResource(R.string.frame_image), Modifier.fillMaxSize().blur(4.dp), contentScale = ContentScale.FillBounds)
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.42f)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.10f), Color(0x66080A0D), Color.Black.copy(alpha = 0.44f)))))
     }
 }
 
@@ -302,19 +317,28 @@ private fun StatusStrip(text: String, active: Boolean) {
 }
 
 @Composable
-private fun StaticBagImpactPanel(hitCaptured: Boolean, forceFill: Float, modifier: Modifier = Modifier) {
+private fun GameInfoPanel(modifier: Modifier = Modifier, hitCaptured: Boolean, forceFill: Float) {
     Box(modifier, contentAlignment = Alignment.Center) {
         if (hitCaptured) ImpactBurst(forceFill)
-        Image(
-            painterResource(R.drawable.punching_bag_and_chain),
-            contentDescription = "Punching bag",
-            modifier = Modifier.size(width = 150.dp, height = 280.dp).graphicsLayer {
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                rotationZ = if (hitCaptured) (-5f - 8f * forceFill) else 0f
-                scaleX = if (hitCaptured) 1f + forceFill * 0.05f else 1f
-                scaleY = if (hitCaptured) 1f + forceFill * 0.03f else 1f
+        MetallicPanel(Modifier.fillMaxWidth().padding(horizontal = 8.dp), 22) {
+            Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(
+                    text = if (hitCaptured) stringResource(R.string.hit_detected).uppercase() else stringResource(R.string.ready).uppercase(),
+                    color = if (hitCaptured) Color(0xFF72FF4B) else Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = if (hitCaptured) stringResource(R.string.next_move).uppercase() else stringResource(R.string.punch).uppercase(),
+                    color = Color.White.copy(alpha = 0.66f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
-        )
+        }
     }
 }
 
@@ -345,11 +369,11 @@ private fun StopBagOverlay(bagSwing: Float, bagDepth: Float) {
                     contentDescription = "Swinging punching bag",
                     modifier = Modifier.size(width = 190.dp, height = 360.dp).graphicsLayer {
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                        rotationZ = bagSwing.coerceIn(-48f, 48f)
-                        rotationY = (bagSwing * 0.18f).coerceIn(-10f, 10f)
+                        rotationZ = bagSwing.coerceIn(-58f, 58f)
+                        rotationY = (bagSwing * 0.22f).coerceIn(-14f, 14f)
                         cameraDistance = 18f * density
-                        scaleX = 1f + bagDepth.coerceIn(-0.20f, 0.20f)
-                        scaleY = 1f + bagDepth.coerceIn(-0.16f, 0.16f) * 0.55f
+                        scaleX = 1f + bagDepth.coerceIn(-0.28f, 0.28f)
+                        scaleY = 1f + bagDepth.coerceIn(-0.22f, 0.22f) * 0.65f
                     }
                 )
                 Text(
