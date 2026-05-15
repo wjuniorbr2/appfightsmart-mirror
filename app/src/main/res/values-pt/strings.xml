@@ -2,7 +2,7 @@
 
     <string name="number_of_moves">Número de movimentos: %d</string>
     <string name="stop_the_bag">Pare o saco!</string>
-    <string name="wait_until_still">Aguarde até o saco ficar parado. O golpe só será registrado quando o saco parar de balançar.</string>
+    <string name="wait_until_still">Aguarde até o saco ficar parado.</string>
     <string name="force">Força: %.2f</string>
     <string name="next_move">Próximo movimento</string>
     <string name="end_game">Encerrar jogo</string>
