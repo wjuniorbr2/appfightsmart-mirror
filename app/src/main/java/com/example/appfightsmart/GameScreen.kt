@@ -78,6 +78,7 @@ fun GameScreen(
     var bestHit by remember { mutableFloatStateOf(0f) }
     var bagSwing by remember { mutableFloatStateOf(0f) }
     var bagDepth by remember { mutableFloatStateOf(0f) }
+    var bagTwist by remember { mutableFloatStateOf(0f) }
     var previousMotionG by remember { mutableFloatStateOf(0f) }
 
     var gInit by remember { mutableStateOf(false) }
@@ -85,13 +86,33 @@ fun GameScreen(
     var gY by remember { mutableFloatStateOf(0f) }
     var gZ by remember { mutableFloatStateOf(0f) }
 
+    var haveAngleFrames by remember { mutableStateOf(false) }
+    var angleBaselineSet by remember { mutableStateOf(false) }
+    var basePitch by remember { mutableFloatStateOf(0f) }
+    var baseRoll by remember { mutableFloatStateOf(0f) }
+    var baseYaw by remember { mutableFloatStateOf(0f) }
+
     val alpha = 0.96f
     val hitThresholdG = 1.15f
     val hitDeltaThresholdG = 0.38f
 
+    LaunchedEffect(bluetoothManager) {
+        if (bluetoothManager != null) {
+            delay(250L)
+            try { bluetoothManager.enableAnglesAndMagAt100Hz() } catch (_: Throwable) {}
+        }
+    }
+
     fun toShortLE(lo: Byte, hi: Byte): Short {
         val u = ((hi.toInt() and 0xFF) shl 8) or (lo.toInt() and 0xFF)
         return u.toShort()
+    }
+
+    fun shortestAngleDelta(current: Float, base: Float): Float {
+        var delta = current - base
+        while (delta > 180f) delta -= 360f
+        while (delta < -180f) delta += 360f
+        return delta
     }
 
     fun applyGravityFilter(ax: Float, ay: Float, az: Float): Triple<Float, Float, Float> {
@@ -108,6 +129,25 @@ fun GameScreen(
         return Triple(ax - gX, ay - gY, az - gZ)
     }
 
+    fun processAngleSample(pitchDeg: Float, rollDeg: Float, yawDeg: Float) {
+        haveAngleFrames = true
+        if (!angleBaselineSet) {
+            basePitch = pitchDeg
+            baseRoll = rollDeg
+            baseYaw = yawDeg
+            angleBaselineSet = true
+        }
+
+        val pitchDelta = shortestAngleDelta(pitchDeg, basePitch).coerceIn(-55f, 55f)
+        val rollDelta = shortestAngleDelta(rollDeg, baseRoll).coerceIn(-45f, 45f)
+        val yawDelta = shortestAngleDelta(yawDeg, baseYaw).coerceIn(-60f, 60f)
+
+        // Roll is the clearest left/right visual tilt. Pitch is shown as depth/forward-back scale.
+        bagSwing = (0.88f * bagSwing + 0.12f * (-rollDelta * 0.85f)).coerceIn(-30f, 30f)
+        bagDepth = (0.90f * bagDepth + 0.10f * (pitchDelta / 260f)).coerceIn(-0.16f, 0.16f)
+        bagTwist = (0.90f * bagTwist + 0.10f * (yawDelta * 0.18f)).coerceIn(-12f, 12f)
+    }
+
     fun processForceSample(axG: Float, ayG: Float, azG: Float) {
         val (lx, ly, lz) = applyGravityFilter(axG, ayG, azG)
         val totalG = sqrt(lx * lx + ly * ly + lz * lz)
@@ -115,8 +155,10 @@ fun GameScreen(
         previousMotionG = totalG
         currentForceG = totalG
 
-        bagSwing = (0.86f * bagSwing + 0.14f * (lx * 10f)).coerceIn(-18f, 18f)
-        bagDepth = (0.88f * bagDepth + 0.12f * (lz * 0.08f)).coerceIn(-0.10f, 0.12f)
+        if (!haveAngleFrames) {
+            bagSwing = (0.90f * bagSwing + 0.10f * (lx * 8f)).coerceIn(-18f, 18f)
+            bagDepth = (0.92f * bagDepth + 0.08f * (lz * 0.06f)).coerceIn(-0.10f, 0.12f)
+        }
 
         if (!isPreparing && !hitCaptured && totalG > hitThresholdG && deltaG > hitDeltaThresholdG) {
             capturedPeakG = totalG
@@ -130,10 +172,17 @@ fun GameScreen(
         if (bluetoothManager == null) return@DisposableEffect onDispose {}
         val listener: (ByteArray) -> Unit = { data ->
             try {
-                val isAccelerationFrame = data.size >= 11 &&
-                        data[0] == 0x55.toByte() &&
-                        (data[1] == 0x61.toByte() || data[1] == 0x51.toByte())
-                if (isAccelerationFrame) {
+                val isWitFrame = data.size >= 11 && data[0] == 0x55.toByte()
+                if (isWitFrame && (data[1] == 0x63.toByte() || data[1] == 0x53.toByte())) {
+                    val pitchRaw = toShortLE(data[2], data[3]).toInt()
+                    val rollRaw = toShortLE(data[4], data[5]).toInt()
+                    val yawRaw = toShortLE(data[6], data[7]).toInt()
+                    processAngleSample(
+                        pitchDeg = pitchRaw / 32768f * 180f,
+                        rollDeg = rollRaw / 32768f * 180f,
+                        yawDeg = yawRaw / 32768f * 180f
+                    )
+                } else if (isWitFrame && (data[1] == 0x61.toByte() || data[1] == 0x51.toByte())) {
                     val axRaw = toShortLE(data[2], data[3]).toInt()
                     val ayRaw = toShortLE(data[4], data[5]).toInt()
                     val azRaw = toShortLE(data[6], data[7]).toInt()
@@ -207,7 +256,7 @@ fun GameScreen(
 
                 Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                        BagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, bagSwing = bagSwing, bagDepth = bagDepth, modifier = Modifier.fillMaxWidth().weight(1f))
+                        BagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, bagSwing = bagSwing, bagDepth = bagDepth, bagTwist = bagTwist, modifier = Modifier.fillMaxWidth().weight(1f))
                         PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
                         ScoreboardPanel(playerList = safePlayerList, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
                     }
@@ -272,7 +321,7 @@ private fun StatusStrip(text: String, active: Boolean) {
 }
 
 @Composable
-private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, bagSwing: Float, bagDepth: Float, modifier: Modifier = Modifier) {
+private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, bagSwing: Float, bagDepth: Float, bagTwist: Float, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         if (hitCaptured) ImpactBurst(forceFill)
         Image(
@@ -281,6 +330,8 @@ private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, bagSwing: Flo
             modifier = Modifier.size(width = 150.dp, height = 280.dp).graphicsLayer {
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
                 rotationZ = bagSwing + if (hitCaptured) (-5f - 8f * forceFill) else 0f
+                rotationY = bagTwist
+                cameraDistance = 16f * density
                 scaleX = 1f + bagDepth + if (hitCaptured) forceFill * 0.05f else 0f
                 scaleY = 1f + bagDepth * 0.65f + if (hitCaptured) forceFill * 0.03f else 0f
             }
