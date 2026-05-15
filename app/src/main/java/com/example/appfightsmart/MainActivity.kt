@@ -11,8 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -81,10 +82,26 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
 
                 val isConnectedState = remember { mutableStateOf(false) }
                 val hasTriedInitialSensorConnection = rememberSaveable { mutableStateOf(false) }
+                val batteryPercentState = remember { mutableStateOf<Int?>(null) }
+                val signalRssiState = remember { mutableStateOf<Int?>(null) }
 
-                LaunchedEffect(bluetoothManager) {
-                    bluetoothManager.addConnectionListener { connected ->
+                DisposableEffect(bluetoothManager) {
+                    val connectionListener: (Boolean) -> Unit = { connected ->
                         isConnectedState.value = connected
+                        if (!connected) {
+                            batteryPercentState.value = null
+                            signalRssiState.value = null
+                        }
+                    }
+                    val batteryListener: (Int?) -> Unit = { batteryPercentState.value = it }
+                    val rssiListener: (Int?) -> Unit = { signalRssiState.value = it }
+                    bluetoothManager.addConnectionListener(connectionListener)
+                    bluetoothManager.addBatteryListener(batteryListener)
+                    bluetoothManager.addRssiListener(rssiListener)
+                    onDispose {
+                        bluetoothManager.removeConnectionListener(connectionListener)
+                        bluetoothManager.removeBatteryListener(batteryListener)
+                        bluetoothManager.removeRssiListener(rssiListener)
                     }
                 }
 
@@ -134,7 +151,10 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                         composable(Screen.GameSetup.route) {
                             GameSetupScreen(
                                 navController,
-                                viewModel = viewModel(factory = GameSetupViewModelFactory(repository))
+                                viewModel = viewModel(factory = GameSetupViewModelFactory(repository)),
+                                sensorConnected = isConnectedState.value,
+                                batteryPercent = batteryPercentState.value,
+                                signalRssi = signalRssiState.value
                             )
                         }
 
@@ -154,8 +174,11 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                                 gameMode = gameMode,
                                 selectedMoveType = selectedMoveType,
                                 bluetoothManager = bluetoothManager,
+                                sensorConnected = isConnectedState.value,
+                                batteryPercent = batteryPercentState.value,
+                                signalRssi = signalRssiState.value,
                                 onBackToMenu = {
-                                    navController.popBackStack(Screen.Home.route, inclusive = false)
+                                    navController.popBackStack(Screen.GameSetup.route, inclusive = false)
                                 }
                             )
                         }
