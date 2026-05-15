@@ -60,7 +60,8 @@ fun GameScreen(
     playerNames: String,
     gameMode: String,
     selectedMoveType: String,
-    bluetoothManager: BluetoothManager? = null
+    bluetoothManager: BluetoothManager? = null,
+    onBackToMenu: () -> Unit = {}
 ) {
     val playerList = playerNames.split(",").map { it.trim() }.filter { it.isNotEmpty() }
     val safePlayerList = if (playerList.isEmpty()) listOf("Player 1") else playerList
@@ -71,14 +72,15 @@ fun GameScreen(
     var hitScores by remember { mutableStateOf(List(safePlayerList.size) { emptyList<Float>() }) }
 
     var isPreparing by remember { mutableStateOf(true) }
+    var isBagSwinging by remember { mutableStateOf(false) }
+    var stillSampleCount by remember { mutableIntStateOf(0) }
     var hitCaptured by remember { mutableStateOf(false) }
     var currentForceG by remember { mutableFloatStateOf(0f) }
     var capturedPeakG by remember { mutableFloatStateOf(0f) }
     var capturedScore by remember { mutableFloatStateOf(0f) }
     var bestHit by remember { mutableFloatStateOf(0f) }
-    var bagSwing by remember { mutableFloatStateOf(0f) }
-    var bagDepth by remember { mutableFloatStateOf(0f) }
-    var bagTwist by remember { mutableFloatStateOf(0f) }
+    var overlayBagSwing by remember { mutableFloatStateOf(0f) }
+    var overlayBagDepth by remember { mutableFloatStateOf(0f) }
     var previousMotionG by remember { mutableFloatStateOf(0f) }
 
     var gInit by remember { mutableStateOf(false) }
@@ -86,33 +88,16 @@ fun GameScreen(
     var gY by remember { mutableFloatStateOf(0f) }
     var gZ by remember { mutableFloatStateOf(0f) }
 
-    var haveAngleFrames by remember { mutableStateOf(false) }
-    var angleBaselineSet by remember { mutableStateOf(false) }
-    var basePitch by remember { mutableFloatStateOf(0f) }
-    var baseRoll by remember { mutableFloatStateOf(0f) }
-    var baseYaw by remember { mutableFloatStateOf(0f) }
-
     val alpha = 0.96f
     val hitThresholdG = 1.15f
     val hitDeltaThresholdG = 0.38f
-
-    LaunchedEffect(bluetoothManager) {
-        if (bluetoothManager != null) {
-            delay(250L)
-            try { bluetoothManager.enableAnglesAndMagAt100Hz() } catch (_: Throwable) {}
-        }
-    }
+    val swingStartThresholdG = 0.42f
+    val stillThresholdG = 0.22f
+    val stillSamplesRequired = 8
 
     fun toShortLE(lo: Byte, hi: Byte): Short {
         val u = ((hi.toInt() and 0xFF) shl 8) or (lo.toInt() and 0xFF)
         return u.toShort()
-    }
-
-    fun shortestAngleDelta(current: Float, base: Float): Float {
-        var delta = current - base
-        while (delta > 180f) delta -= 360f
-        while (delta < -180f) delta += 360f
-        return delta
     }
 
     fun applyGravityFilter(ax: Float, ay: Float, az: Float): Triple<Float, Float, Float> {
@@ -129,25 +114,6 @@ fun GameScreen(
         return Triple(ax - gX, ay - gY, az - gZ)
     }
 
-    fun processAngleSample(pitchDeg: Float, rollDeg: Float, yawDeg: Float) {
-        haveAngleFrames = true
-        if (!angleBaselineSet) {
-            basePitch = pitchDeg
-            baseRoll = rollDeg
-            baseYaw = yawDeg
-            angleBaselineSet = true
-        }
-
-        val pitchDelta = shortestAngleDelta(pitchDeg, basePitch).coerceIn(-55f, 55f)
-        val rollDelta = shortestAngleDelta(rollDeg, baseRoll).coerceIn(-45f, 45f)
-        val yawDelta = shortestAngleDelta(yawDeg, baseYaw).coerceIn(-60f, 60f)
-
-        // Roll is the clearest left/right visual tilt. Pitch is shown as depth/forward-back scale.
-        bagSwing = (0.88f * bagSwing + 0.12f * (-rollDelta * 0.85f)).coerceIn(-30f, 30f)
-        bagDepth = (0.90f * bagDepth + 0.10f * (pitchDelta / 260f)).coerceIn(-0.16f, 0.16f)
-        bagTwist = (0.90f * bagTwist + 0.10f * (yawDelta * 0.18f)).coerceIn(-12f, 12f)
-    }
-
     fun processForceSample(axG: Float, ayG: Float, azG: Float) {
         val (lx, ly, lz) = applyGravityFilter(axG, ayG, azG)
         val totalG = sqrt(lx * lx + ly * ly + lz * lz)
@@ -155,34 +121,40 @@ fun GameScreen(
         previousMotionG = totalG
         currentForceG = totalG
 
-        if (!haveAngleFrames) {
-            bagSwing = (0.90f * bagSwing + 0.10f * (lx * 8f)).coerceIn(-18f, 18f)
-            bagDepth = (0.92f * bagDepth + 0.08f * (lz * 0.06f)).coerceIn(-0.10f, 0.12f)
+        overlayBagSwing = (0.76f * overlayBagSwing + 0.24f * (lx * 32f)).coerceIn(-48f, 48f)
+        overlayBagDepth = (0.80f * overlayBagDepth + 0.20f * (lz * 0.18f)).coerceIn(-0.22f, 0.22f)
+
+        if (!hitCaptured) {
+            if (totalG > swingStartThresholdG) {
+                isBagSwinging = true
+                stillSampleCount = 0
+            } else if (totalG < stillThresholdG) {
+                stillSampleCount++
+                if (stillSampleCount >= stillSamplesRequired) {
+                    isBagSwinging = false
+                }
+            } else {
+                stillSampleCount = 0
+            }
         }
 
-        if (!isPreparing && !hitCaptured && totalG > hitThresholdG && deltaG > hitDeltaThresholdG) {
+        val canRecordStrike = !isPreparing && !isBagSwinging && !hitCaptured
+        if (canRecordStrike && totalG > hitThresholdG && deltaG > hitDeltaThresholdG) {
             capturedPeakG = totalG
             capturedScore = (totalG * 65f).coerceIn(1f, 999f)
             if (capturedScore > bestHit) bestHit = capturedScore
             hitCaptured = true
+            isBagSwinging = false
+            stillSampleCount = 0
         }
     }
 
-    DisposableEffect(bluetoothManager, isPreparing, hitCaptured) {
+    DisposableEffect(bluetoothManager, isPreparing, isBagSwinging, hitCaptured) {
         if (bluetoothManager == null) return@DisposableEffect onDispose {}
         val listener: (ByteArray) -> Unit = { data ->
             try {
                 val isWitFrame = data.size >= 11 && data[0] == 0x55.toByte()
-                if (isWitFrame && (data[1] == 0x63.toByte() || data[1] == 0x53.toByte())) {
-                    val pitchRaw = toShortLE(data[2], data[3]).toInt()
-                    val rollRaw = toShortLE(data[4], data[5]).toInt()
-                    val yawRaw = toShortLE(data[6], data[7]).toInt()
-                    processAngleSample(
-                        pitchDeg = pitchRaw / 32768f * 180f,
-                        rollDeg = rollRaw / 32768f * 180f,
-                        yawDeg = yawRaw / 32768f * 180f
-                    )
-                } else if (isWitFrame && (data[1] == 0x61.toByte() || data[1] == 0x51.toByte())) {
+                if (isWitFrame && (data[1] == 0x61.toByte() || data[1] == 0x51.toByte())) {
                     val axRaw = toShortLE(data[2], data[3]).toInt()
                     val ayRaw = toShortLE(data[4], data[5]).toInt()
                     val azRaw = toShortLE(data[6], data[7]).toInt()
@@ -220,6 +192,7 @@ fun GameScreen(
         capturedPeakG = 0f
         capturedScore = 0f
         previousMotionG = 0f
+        stillSampleCount = 0
         delay(650L)
         isPreparing = false
     }
@@ -229,51 +202,59 @@ fun GameScreen(
     val liveScore = if (hitCaptured) capturedScore else (currentForceG * 45f).coerceIn(0f, 999f)
     val forceFill = (liveScore / 300f).coerceIn(0f, 1f)
     val isLastTurn = currentPlayer == safePlayerList.lastIndex && currentMove == numberOfMoves - 1
+    val showStopBagOverlay = !gameFinished && !hitCaptured && !isPreparing && isBagSwinging
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-        FightSmartGameBackground()
+        Box(Modifier.fillMaxSize()) {
+            FightSmartGameBackground()
 
-        if (gameFinished) {
-            Box(modifier = Modifier.fillMaxSize().padding(18.dp), contentAlignment = Alignment.Center) {
-                FinalScoresCard(playerList = safePlayerList, hitScores = hitScores)
+            if (gameFinished) {
+                Box(modifier = Modifier.fillMaxSize().padding(18.dp), contentAlignment = Alignment.Center) {
+                    FinalScoresCard(playerList = safePlayerList, hitScores = hitScores, onBackToMenu = onBackToMenu)
+                }
+            } else {
+                val playerName = safePlayerList[currentPlayer]
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(stringResource(R.string.quick_game), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 6.dp))
+                    TopGameHud(playerName = playerName, currentMove = currentMove + 1, totalMoves = numberOfMoves, moveName = moveName)
+                    StatusStrip(
+                        text = when {
+                            hitCaptured -> stringResource(R.string.hit_detected)
+                            isBagSwinging -> stringResource(R.string.stop_the_bag)
+                            isPreparing -> stringResource(R.string.recovering)
+                            else -> stringResource(R.string.ready)
+                        },
+                        active = hitCaptured
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
+                            StaticBagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, modifier = Modifier.fillMaxWidth().weight(1f))
+                            PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
+                            ScoreboardPanel(playerList = safePlayerList, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
+                        }
+                        ForceMeter(fill = forceFill, score = liveScore, modifier = Modifier.width(92.dp).fillMaxHeight())
+                    }
+
+                    BottomGameSummary(players = safePlayerList.size, moves = "${currentMove + 1} / $numberOfMoves", moveName = moveName)
+                    NextMoveButton(enabled = hitCaptured, text = if (isLastTurn) stringResource(R.string.end_game) else stringResource(R.string.next_move)) {
+                        hitScores = hitScores.toMutableList().also { list ->
+                            list[currentPlayer] = list[currentPlayer] + capturedScore
+                        }
+                        currentMove++
+                        if (currentMove >= numberOfMoves) {
+                            currentMove = 0
+                            currentPlayer++
+                        }
+                    }
+                }
             }
-        } else {
-            val playerName = safePlayerList[currentPlayer]
-            Column(
-                modifier = Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(stringResource(R.string.quick_game), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 6.dp))
-                TopGameHud(playerName = playerName, currentMove = currentMove + 1, totalMoves = numberOfMoves, moveName = moveName)
-                StatusStrip(
-                    text = when {
-                        hitCaptured -> stringResource(R.string.hit_detected)
-                        isPreparing -> stringResource(R.string.recovering)
-                        else -> stringResource(R.string.ready)
-                    },
-                    active = hitCaptured
-                )
 
-                Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                        BagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, bagSwing = bagSwing, bagDepth = bagDepth, bagTwist = bagTwist, modifier = Modifier.fillMaxWidth().weight(1f))
-                        PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
-                        ScoreboardPanel(playerList = safePlayerList, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
-                    }
-                    ForceMeter(fill = forceFill, score = liveScore, modifier = Modifier.width(92.dp).fillMaxHeight())
-                }
-
-                BottomGameSummary(players = safePlayerList.size, moves = "${currentMove + 1} / $numberOfMoves", moveName = moveName)
-                NextMoveButton(enabled = hitCaptured, text = if (isLastTurn) stringResource(R.string.end_game) else stringResource(R.string.next_move)) {
-                    hitScores = hitScores.toMutableList().also { list ->
-                        list[currentPlayer] = list[currentPlayer] + capturedScore
-                    }
-                    currentMove++
-                    if (currentMove >= numberOfMoves) {
-                        currentMove = 0
-                        currentPlayer++
-                    }
-                }
+            if (showStopBagOverlay) {
+                StopBagOverlay(bagSwing = overlayBagSwing, bagDepth = overlayBagDepth)
             }
         }
     }
@@ -321,7 +302,7 @@ private fun StatusStrip(text: String, active: Boolean) {
 }
 
 @Composable
-private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, bagSwing: Float, bagDepth: Float, bagTwist: Float, modifier: Modifier = Modifier) {
+private fun StaticBagImpactPanel(hitCaptured: Boolean, forceFill: Float, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         if (hitCaptured) ImpactBurst(forceFill)
         Image(
@@ -329,13 +310,57 @@ private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, bagSwing: Flo
             contentDescription = "Punching bag",
             modifier = Modifier.size(width = 150.dp, height = 280.dp).graphicsLayer {
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                rotationZ = bagSwing + if (hitCaptured) (-5f - 8f * forceFill) else 0f
-                rotationY = bagTwist
-                cameraDistance = 16f * density
-                scaleX = 1f + bagDepth + if (hitCaptured) forceFill * 0.05f else 0f
-                scaleY = 1f + bagDepth * 0.65f + if (hitCaptured) forceFill * 0.03f else 0f
+                rotationZ = if (hitCaptured) (-5f - 8f * forceFill) else 0f
+                scaleX = if (hitCaptured) 1f + forceFill * 0.05f else 1f
+                scaleY = if (hitCaptured) 1f + forceFill * 0.03f else 1f
             }
         )
+    }
+}
+
+@Composable
+private fun StopBagOverlay(bagSwing: Float, bagDepth: Float) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        MetallicPanel(Modifier.fillMaxWidth().fillMaxHeight(0.70f), 28) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Text(
+                    text = stringResource(R.string.stop_the_bag).uppercase(),
+                    color = Color.White,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center
+                )
+                Image(
+                    painterResource(R.drawable.punching_bag_and_chain),
+                    contentDescription = "Swinging punching bag",
+                    modifier = Modifier.size(width = 190.dp, height = 360.dp).graphicsLayer {
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                        rotationZ = bagSwing.coerceIn(-48f, 48f)
+                        rotationY = (bagSwing * 0.18f).coerceIn(-10f, 10f)
+                        cameraDistance = 18f * density
+                        scaleX = 1f + bagDepth.coerceIn(-0.20f, 0.20f)
+                        scaleY = 1f + bagDepth.coerceIn(-0.16f, 0.16f) * 0.55f
+                    }
+                )
+                Text(
+                    text = stringResource(R.string.wait_until_still),
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 
@@ -379,14 +404,19 @@ private fun CompactStatRow(label: String, value: String, accent: Boolean = false
 
 @Composable
 private fun ScoreboardPanel(playerList: List<String>, currentPlayer: Int, currentHitScore: Float?, modifier: Modifier = Modifier) {
+    val compact = playerList.size >= 5
+    val veryCompact = playerList.size >= 6
+    val rowPaddingV = if (veryCompact) 2.dp else if (compact) 3.dp else 5.dp
+    val nameFont = if (veryCompact) 11.sp else if (compact) 12.sp else 15.sp
+    val scoreFont = if (veryCompact) 13.sp else if (compact) 14.sp else 17.sp
     MetallicPanel(modifier, 18) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-            Text(stringResource(R.string.scoreboard).uppercase(), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 4.dp))
+        Column(Modifier.padding(horizontal = 8.dp, vertical = if (compact) 6.dp else 9.dp)) {
+            Text(stringResource(R.string.scoreboard).uppercase(), color = Color.White.copy(alpha = 0.72f), fontSize = if (compact) 10.sp else 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = if (compact) 2.dp else 4.dp))
             playerList.forEachIndexed { index, name ->
                 val shownScore = if (index == currentPlayer && currentHitScore != null) currentHitScore.roundToInt().toString() else "--"
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (index == currentPlayer) Color(0x33FF3B30) else Color.Transparent).padding(horizontal = 8.dp, vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text(shownScore, color = if (shownScore != "--") Color(0xFFFF5A4E) else Color.White.copy(alpha = 0.55f), fontSize = 17.sp, fontWeight = FontWeight.Black)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(if (index == currentPlayer) Color(0x33FF3B30) else Color.Transparent).padding(horizontal = 6.dp, vertical = rowPaddingV), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(name, color = Color.White, fontSize = nameFont, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
+                    Text(shownScore, color = if (shownScore != "--") Color(0xFFFF5A4E) else Color.White.copy(alpha = 0.55f), fontSize = scoreFont, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 6.dp))
                 }
             }
         }
@@ -474,7 +504,7 @@ private fun MetallicPanel(modifier: Modifier = Modifier, cornerRadius: Int = 20,
 }
 
 @Composable
-private fun FinalScoresCard(playerList: List<String>, hitScores: List<List<Float>>) {
+private fun FinalScoresCard(playerList: List<String>, hitScores: List<List<Float>>, onBackToMenu: () -> Unit) {
     val totals = hitScores.map { hits -> hits.sum() }
     val winnerIndex = totals.indexOf(totals.maxOrNull() ?: 0f)
     MetallicPanel(Modifier.fillMaxWidth(), 26) {
@@ -486,6 +516,7 @@ private fun FinalScoresCard(playerList: List<String>, hitScores: List<List<Float
             if (winnerIndex in playerList.indices) {
                 Text(stringResource(R.string.winner, playerList[winnerIndex]), color = Color(0xFFFF5A4E), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
             }
+            MenuButton(text = stringResource(R.string.back_to_menu), onClick = onBackToMenu)
         }
     }
 }
@@ -508,5 +539,13 @@ private fun PlayerFinalScoreBlock(name: String, hits: List<Float>, total: Float)
             Text(stringResource(R.string.total), color = Color(0xFFFF5A4E), fontSize = 15.sp, fontWeight = FontWeight.Black)
             Text(total.roundToInt().toString(), color = Color(0xFFFF5A4E), fontSize = 17.sp, fontWeight = FontWeight.Black)
         }
+    }
+}
+
+@Composable
+private fun MenuButton(text: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Box(Modifier.fillMaxWidth().height(52.dp).clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF4A0808), Color(0xFFC62828), Color(0xFF4A0808)))).border(1.dp, Color(0xFFFF6A5E), shape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(text.uppercase(), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
     }
 }
