@@ -61,6 +61,9 @@ fun GameScreen(
     gameMode: String,
     selectedMoveType: String,
     bluetoothManager: BluetoothManager? = null,
+    sensorConnected: Boolean = false,
+    batteryPercent: Int? = null,
+    signalRssi: Int? = null,
     onBackToMenu: () -> Unit = {}
 ) {
     val playerList = playerNames.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -89,17 +92,40 @@ fun GameScreen(
     var gY by remember { mutableFloatStateOf(0f) }
     var gZ by remember { mutableFloatStateOf(0f) }
 
+    var angleBaselineSet by remember { mutableStateOf(false) }
+    var basePitch by remember { mutableFloatStateOf(0f) }
+    var baseRoll by remember { mutableFloatStateOf(0f) }
+    var baseYaw by remember { mutableFloatStateOf(0f) }
+    var previousAngleMagnitude by remember { mutableFloatStateOf(0f) }
+
     val alpha = 0.96f
-    val hitThresholdG = 1.15f
-    val hitDeltaThresholdG = 0.38f
-    val swingStartThresholdG = 0.18f
-    val stillThresholdG = 0.10f
-    val movingSamplesRequired = 3
-    val stillSamplesRequired = 12
+    val hitThresholdG = 1.05f
+    val hitDeltaThresholdG = 0.26f
+    val swingStartThresholdG = 0.08f
+    val stillThresholdG = 0.055f
+    val angleSwingThresholdDeg = 1.8f
+    val angleStillThresholdDeg = 0.9f
+    val angleDeltaSwingThresholdDeg = 0.22f
+    val movingSamplesRequired = 2
+    val stillSamplesRequired = 10
+
+    LaunchedEffect(bluetoothManager) {
+        if (bluetoothManager != null) {
+            delay(200L)
+            try { bluetoothManager.enableAnglesAndMagAt100Hz() } catch (_: Throwable) {}
+        }
+    }
 
     fun toShortLE(lo: Byte, hi: Byte): Short {
         val u = ((hi.toInt() and 0xFF) shl 8) or (lo.toInt() and 0xFF)
         return u.toShort()
+    }
+
+    fun shortestAngleDelta(current: Float, base: Float): Float {
+        var delta = current - base
+        while (delta > 180f) delta -= 360f
+        while (delta < -180f) delta += 360f
+        return delta
     }
 
     fun applyGravityFilter(ax: Float, ay: Float, az: Float): Triple<Float, Float, Float> {
@@ -116,6 +142,40 @@ fun GameScreen(
         return Triple(ax - gX, ay - gY, az - gZ)
     }
 
+    fun updateSwingState(motion: Float, stillThreshold: Float, swingThreshold: Float) {
+        if (hitCaptured) return
+        if (motion > swingThreshold) {
+            movingSampleCount++
+            stillSampleCount = 0
+            if (movingSampleCount >= movingSamplesRequired) isBagSwinging = true
+        } else if (motion < stillThreshold) {
+            stillSampleCount++
+            movingSampleCount = 0
+            if (stillSampleCount >= stillSamplesRequired) isBagSwinging = false
+        }
+    }
+
+    fun processAngleSample(pitchDeg: Float, rollDeg: Float, yawDeg: Float) {
+        if (!angleBaselineSet) {
+            basePitch = pitchDeg
+            baseRoll = rollDeg
+            baseYaw = yawDeg
+            angleBaselineSet = true
+        }
+        val pitchDelta = shortestAngleDelta(pitchDeg, basePitch)
+        val rollDelta = shortestAngleDelta(rollDeg, baseRoll)
+        val yawDelta = shortestAngleDelta(yawDeg, baseYaw)
+        val angleMagnitude = sqrt(pitchDelta * pitchDelta + rollDelta * rollDelta + yawDelta * yawDelta)
+        val angleDelta = abs(angleMagnitude - previousAngleMagnitude)
+        previousAngleMagnitude = angleMagnitude
+
+        overlayBagSwing = (0.82f * overlayBagSwing + 0.18f * (-rollDelta * 5.2f)).coerceIn(-58f, 58f)
+        overlayBagDepth = (0.86f * overlayBagDepth + 0.14f * (pitchDelta / 70f)).coerceIn(-0.28f, 0.28f)
+
+        val angleMotion = maxOf(angleMagnitude, angleDelta * 4f)
+        updateSwingState(angleMotion, angleStillThresholdDeg, angleSwingThresholdDeg)
+    }
+
     fun processForceSample(axG: Float, ayG: Float, azG: Float) {
         val (lx, ly, lz) = applyGravityFilter(axG, ayG, azG)
         val totalG = sqrt(lx * lx + ly * ly + lz * lz)
@@ -129,8 +189,6 @@ fun GameScreen(
         val looksLikePunch = totalG > hitThresholdG && deltaG > hitDeltaThresholdG
         val canRecordStrike = !isPreparing && !isBagSwinging && !hitCaptured
 
-        // A punch-like spike has priority over the swing warning. Otherwise the app can show
-        // Stop the bag exactly when the player actually punches.
         if (canRecordStrike && looksLikePunch) {
             capturedPeakG = totalG
             capturedScore = (totalG * 65f).coerceIn(1f, 999f)
@@ -142,32 +200,24 @@ fun GameScreen(
             return
         }
 
-        if (!hitCaptured) {
-            if (totalG > swingStartThresholdG) {
-                movingSampleCount++
-                stillSampleCount = 0
-                if (movingSampleCount >= movingSamplesRequired) {
-                    isBagSwinging = true
-                }
-            } else if (totalG < stillThresholdG) {
-                stillSampleCount++
-                movingSampleCount = 0
-                if (stillSampleCount >= stillSamplesRequired) {
-                    isBagSwinging = false
-                }
-            } else {
-                movingSampleCount = 0
-                stillSampleCount = 0
-            }
-        }
+        updateSwingState(totalG, stillThresholdG, swingStartThresholdG)
     }
 
-    DisposableEffect(bluetoothManager, isPreparing, isBagSwinging, hitCaptured) {
+    DisposableEffect(bluetoothManager) {
         if (bluetoothManager == null) return@DisposableEffect onDispose {}
         val listener: (ByteArray) -> Unit = { data ->
             try {
                 val isWitFrame = data.size >= 11 && data[0] == 0x55.toByte()
-                if (isWitFrame && (data[1] == 0x61.toByte() || data[1] == 0x51.toByte())) {
+                if (isWitFrame && (data[1] == 0x63.toByte() || data[1] == 0x53.toByte())) {
+                    val pitchRaw = toShortLE(data[2], data[3]).toInt()
+                    val rollRaw = toShortLE(data[4], data[5]).toInt()
+                    val yawRaw = toShortLE(data[6], data[7]).toInt()
+                    processAngleSample(
+                        pitchDeg = pitchRaw / 32768f * 180f,
+                        rollDeg = rollRaw / 32768f * 180f,
+                        yawDeg = yawRaw / 32768f * 180f
+                    )
+                } else if (isWitFrame && (data[1] == 0x61.toByte() || data[1] == 0x51.toByte())) {
                     val axRaw = toShortLE(data[2], data[3]).toInt()
                     val ayRaw = toShortLE(data[4], data[5]).toInt()
                     val azRaw = toShortLE(data[6], data[7]).toInt()
@@ -206,6 +256,7 @@ fun GameScreen(
         capturedPeakG = 0f
         capturedScore = 0f
         previousMotionG = 0f
+        previousAngleMagnitude = 0f
         movingSampleCount = 0
         stillSampleCount = 0
         delay(650L)
@@ -233,6 +284,12 @@ fun GameScreen(
                     modifier = Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    SensorStatusRow(
+                        connected = sensorConnected,
+                        rssi = signalRssi,
+                        batteryPercent = batteryPercent,
+                        modifier = Modifier.padding(bottom = 6.dp, end = 4.dp)
+                    )
                     Text(stringResource(R.string.quick_game), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 6.dp))
                     TopGameHud(playerName = playerName, currentMove = currentMove + 1, totalMoves = numberOfMoves, moveName = moveName)
                     StatusStrip(
@@ -245,9 +302,8 @@ fun GameScreen(
                         active = hitCaptured
                     )
 
-                    Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                            GameInfoPanel(modifier = Modifier.fillMaxWidth().weight(1f), hitCaptured = hitCaptured, forceFill = forceFill)
+                    Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
                             PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
                             ScoreboardPanel(playerList = safePlayerList, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
                         }
@@ -317,38 +373,9 @@ private fun StatusStrip(text: String, active: Boolean) {
 }
 
 @Composable
-private fun GameInfoPanel(modifier: Modifier = Modifier, hitCaptured: Boolean, forceFill: Float) {
-    Box(modifier, contentAlignment = Alignment.Center) {
-        if (hitCaptured) ImpactBurst(forceFill)
-        MetallicPanel(Modifier.fillMaxWidth().padding(horizontal = 8.dp), 22) {
-            Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Text(
-                    text = if (hitCaptured) stringResource(R.string.hit_detected).uppercase() else stringResource(R.string.ready).uppercase(),
-                    color = if (hitCaptured) Color(0xFF72FF4B) else Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = if (hitCaptured) stringResource(R.string.next_move).uppercase() else stringResource(R.string.punch).uppercase(),
-                    color = Color.White.copy(alpha = 0.66f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun StopBagOverlay(bagSwing: Float, bagDepth: Float) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f))
-            .padding(horizontal = 14.dp),
+        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.72f)).padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         MetallicPanel(Modifier.fillMaxWidth().fillMaxHeight(0.70f), 28) {
@@ -540,7 +567,7 @@ private fun FinalScoresCard(playerList: List<String>, hitScores: List<List<Float
             if (winnerIndex in playerList.indices) {
                 Text(stringResource(R.string.winner, playerList[winnerIndex]), color = Color(0xFFFF5A4E), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
             }
-            MenuButton(text = stringResource(R.string.back_to_menu), onClick = onBackToMenu)
+            MenuButton(text = stringResource(R.string.back), onClick = onBackToMenu)
         }
     }
 }
