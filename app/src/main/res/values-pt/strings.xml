@@ -2,6 +2,7 @@
 
     <string name="number_of_moves">Número de movimentos: %d</string>
     <string name="stop_the_bag">Pare o saco!</string>
+    <string name="wait_until_still">Aguarde até o saco ficar parado. O golpe só será registrado quando o saco parar de balançar.</string>
     <string name="force">Força: %.2f</string>
     <string name="next_move">Próximo movimento</string>
     <string name="end_game">Encerrar jogo</string>
@@ -34,6 +35,7 @@
     <string name="quick_game_setup">Configuração do jogo rápido</string>
     <string name="prepare_match">Prepare-se para a partida</string>
     <string name="back">Voltar</string>
+    <string name="back_to_menu">Voltar ao menu</string>
     <string name="number_of_players">Número de jogadores: %d</string>
     <string name="number_of_players_plain">Número de jogadores</string>
     <string name="number_of_moves_plain">Número de movimentos</string>
