@@ -21,20 +21,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,9 +69,15 @@ import kotlin.math.roundToInt
 private enum class MoveCategory { Punch, Kick }
 private data class MoveOption(val label: String)
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewModel) {
+fun GameSetupScreen(
+    navController: NavHostController,
+    viewModel: GameSetupViewModel,
+    sensorConnected: Boolean = false,
+    batteryPercent: Int? = null,
+    signalRssi: Int? = null
+) {
     var numberOfPlayers by rememberSaveable { mutableIntStateOf(1) }
     val playerNames = remember { mutableStateListOf("") }
     var selectedGameMode by rememberSaveable { mutableIntStateOf(1) }
@@ -134,139 +133,137 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
         coroutineScope.launch { searchResults[index] = viewModel.searchPlayersNow(query) }
     }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(stringResource(R.string.quick_game_setup)) },
-            navigationIcon = {
-                IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                }
-            }
-        )
-    }) { innerPadding ->
-        Box(Modifier.fillMaxSize().padding(innerPadding)) {
-            FightSmartSetupBackground()
-            Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp).verticalScroll(scrollState),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = stringResource(R.string.prepare_match).uppercase(),
-                    color = Color.White.copy(alpha = 0.82f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.8.sp,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)
-                )
+    Box(Modifier.fillMaxSize()) {
+        FightSmartSetupBackground()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .verticalScroll(scrollState),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            SensorStatusRow(
+                connected = sensorConnected,
+                rssi = signalRssi,
+                batteryPercent = batteryPercent,
+                modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
+            )
+            Text(
+                text = stringResource(R.string.prepare_match).uppercase(),
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.8.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+            )
 
-                SetupMetalPanel(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        SectionTitle(stringResource(R.string.players))
-                        for (i in 0 until numberOfPlayers) {
-                            Column(Modifier.fillMaxWidth()) {
-                                OutlinedTextField(
-                                    value = getPlayerName(i),
-                                    onValueChange = {
-                                        setPlayerName(i, it)
+            SetupMetalPanel(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SectionTitle(stringResource(R.string.players))
+                    for (i in 0 until numberOfPlayers) {
+                        Column(Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = getPlayerName(i),
+                                onValueChange = {
+                                    setPlayerName(i, it)
+                                    focusedPlayerIndex = i
+                                    loadPlayerSuggestions(i, it)
+                                },
+                                label = { Text(stringResource(R.string.player_number_short, i + 1)) },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedLabelColor = Color.White.copy(alpha = 0.85f),
+                                    unfocusedLabelColor = Color.White.copy(alpha = 0.60f),
+                                    cursorColor = Color.White,
+                                    focusedBorderColor = Color.White.copy(alpha = 0.85f),
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
+                                    focusedContainerColor = Color.Black.copy(alpha = 0.28f),
+                                    unfocusedContainerColor = Color.Black.copy(alpha = 0.22f)
+                                ),
+                                modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+                                    if (state.isFocused) {
                                         focusedPlayerIndex = i
-                                        loadPlayerSuggestions(i, it)
-                                    },
-                                    label = { Text(stringResource(R.string.player_number_short, i + 1)) },
-                                    singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color.White,
-                                        focusedLabelColor = Color.White.copy(alpha = 0.85f),
-                                        unfocusedLabelColor = Color.White.copy(alpha = 0.60f),
-                                        cursorColor = Color.White,
-                                        focusedBorderColor = Color.White.copy(alpha = 0.85f),
-                                        unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
-                                        focusedContainerColor = Color.Black.copy(alpha = 0.28f),
-                                        unfocusedContainerColor = Color.Black.copy(alpha = 0.22f)
-                                    ),
-                                    modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
-                                        if (state.isFocused) {
-                                            focusedPlayerIndex = i
-                                            keyboardController?.show()
-                                            loadPlayerSuggestions(i, getPlayerName(i))
-                                        }
-                                    }
-                                )
-                                val currentSearchResults = searchResults[i] ?: emptyList()
-                                if (focusedPlayerIndex == i && currentSearchResults.isNotEmpty()) {
-                                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 120.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(8.dp))) {
-                                        items(currentSearchResults) { player ->
-                                            Text(player.playerName, color = Color.White, modifier = Modifier.fillMaxWidth().clickable {
-                                                setPlayerName(i, player.playerName)
-                                                searchResults[i] = emptyList()
-                                                focusedPlayerIndex = null
-                                                focusManager.clearFocus()
-                                                keyboardController?.hide()
-                                            }.padding(12.dp))
-                                        }
+                                        keyboardController?.show()
+                                        loadPlayerSuggestions(i, getPlayerName(i))
                                     }
                                 }
-                            }
-                        }
-
-                        CounterSection(stringResource(R.string.number_of_players_plain), numberOfPlayers, "1 - 6", { setPlayerCount(numberOfPlayers - 1) }, { setPlayerCount(numberOfPlayers + 1) })
-                        Slider(value = numberOfPlayers.toFloat(), onValueChange = { setPlayerCount(it.roundToInt()) }, valueRange = 1f..6f, steps = 4)
-                        CounterSection(stringResource(R.string.number_of_moves_plain), selectedGameMode, "1 - 20", { selectedGameMode = (selectedGameMode - 1).coerceIn(1, 20) }, { selectedGameMode = (selectedGameMode + 1).coerceIn(1, 20) })
-                        Slider(value = selectedGameMode.toFloat(), onValueChange = { selectedGameMode = it.roundToInt().coerceIn(1, 20) }, valueRange = 1f..20f, steps = 18)
-
-                        SectionTitle(stringResource(R.string.move_types))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MoveCategoryCard(stringResource(R.string.punch), selectedCategory == MoveCategory.Punch, Modifier.weight(1f)) {
-                                selectedCategory = MoveCategory.Punch
-                                selectedMoveType = punchOptions.first().label
-                            }
-                            MoveCategoryCard(stringResource(R.string.kick), selectedCategory == MoveCategory.Kick, Modifier.weight(1f)) {
-                                selectedCategory = MoveCategory.Kick
-                                selectedMoveType = kickOptions.first().label
-                            }
-                        }
-                        val visibleOptions = if (selectedCategory == MoveCategory.Punch) punchOptions else kickOptions
-                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            visibleOptions.chunked(2).forEach { rowOptions ->
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    rowOptions.forEach { option -> MoveOptionChip(option.label, selectedMoveType == option.label, Modifier.weight(1f)) { selectedMoveType = option.label } }
-                                    if (rowOptions.size == 1) Box(Modifier.weight(1f))
+                            )
+                            val currentSearchResults = searchResults[i] ?: emptyList()
+                            if (focusedPlayerIndex == i && currentSearchResults.isNotEmpty()) {
+                                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 120.dp).background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(8.dp))) {
+                                    items(currentSearchResults) { player ->
+                                        Text(player.playerName, color = Color.White, modifier = Modifier.fillMaxWidth().clickable {
+                                            setPlayerName(i, player.playerName)
+                                            searchResults[i] = emptyList()
+                                            focusedPlayerIndex = null
+                                            focusManager.clearFocus()
+                                            keyboardController?.hide()
+                                        }.padding(12.dp))
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                val activePlayerNames = (0 until numberOfPlayers).map { getPlayerName(it) }
-                val isFormValid = activePlayerNames.none { it.isBlank() } && selectedMoveType.isNotBlank()
-                val context = LocalContext.current
-                SetupSummaryCard(numberOfPlayers, selectedGameMode, selectedMoveType, Modifier.fillMaxWidth().padding(top = 12.dp))
-                StartGameButton(enabled = isFormValid, modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp)) {
-                    if (hasDuplicateNames(activePlayerNames.map { it.trim() })) {
-                        errorMessage = context.getString(R.string.error_duplicate_names)
-                        showErrorMessage = true
-                    } else {
-                        coroutineScope.launch {
-                            try {
-                                val playerIds = mutableListOf<Long>()
-                                activePlayerNames.forEach { playerIds.add(viewModel.insertPlayerIfNotExists(it.trim())) }
-                                viewModel.insertGameSession(playerIds, selectedGameMode.toString(), selectedMoveType)
-                                navController.navigate(Screen.Game.createRoute(activePlayerNames.joinToString(",") { it.trim() }, selectedGameMode.toString(), selectedMoveType))
-                            } catch (e: Exception) {
-                                Log.e("GameSetupScreen", "Failed to start game", e)
-                                errorMessage = context.getString(R.string.error_generic)
-                                showErrorMessage = true
+                    CounterSection(stringResource(R.string.number_of_players_plain), numberOfPlayers, "1 - 6", { setPlayerCount(numberOfPlayers - 1) }, { setPlayerCount(numberOfPlayers + 1) })
+                    Slider(value = numberOfPlayers.toFloat(), onValueChange = { setPlayerCount(it.roundToInt()) }, valueRange = 1f..6f, steps = 4)
+                    CounterSection(stringResource(R.string.number_of_moves_plain), selectedGameMode, "1 - 20", { selectedGameMode = (selectedGameMode - 1).coerceIn(1, 20) }, { selectedGameMode = (selectedGameMode + 1).coerceIn(1, 20) })
+                    Slider(value = selectedGameMode.toFloat(), onValueChange = { selectedGameMode = it.roundToInt().coerceIn(1, 20) }, valueRange = 1f..20f, steps = 18)
+
+                    SectionTitle(stringResource(R.string.move_types))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MoveCategoryCard(stringResource(R.string.punch), selectedCategory == MoveCategory.Punch, Modifier.weight(1f)) {
+                            selectedCategory = MoveCategory.Punch
+                            selectedMoveType = punchOptions.first().label
+                        }
+                        MoveCategoryCard(stringResource(R.string.kick), selectedCategory == MoveCategory.Kick, Modifier.weight(1f)) {
+                            selectedCategory = MoveCategory.Kick
+                            selectedMoveType = kickOptions.first().label
+                        }
+                    }
+                    val visibleOptions = if (selectedCategory == MoveCategory.Punch) punchOptions else kickOptions
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        visibleOptions.chunked(2).forEach { rowOptions ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                rowOptions.forEach { option -> MoveOptionChip(option.label, selectedMoveType == option.label, Modifier.weight(1f)) { selectedMoveType = option.label } }
+                                if (rowOptions.size == 1) Box(Modifier.weight(1f))
                             }
                         }
                     }
                 }
             }
 
-            if (showErrorMessage) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).padding(16.dp), contentAlignment = Alignment.Center) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = Color.White) {
-                        Text(errorMessage ?: "", color = Color.Red, modifier = Modifier.padding(16.dp), fontSize = 18.sp, textAlign = TextAlign.Center)
+            val activePlayerNames = (0 until numberOfPlayers).map { getPlayerName(it) }
+            val isFormValid = activePlayerNames.none { it.isBlank() } && selectedMoveType.isNotBlank()
+            val context = LocalContext.current
+            SetupSummaryCard(numberOfPlayers, selectedGameMode, selectedMoveType, Modifier.fillMaxWidth().padding(top = 12.dp))
+            StartGameButton(enabled = isFormValid, modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp)) {
+                if (hasDuplicateNames(activePlayerNames.map { it.trim() })) {
+                    errorMessage = context.getString(R.string.error_duplicate_names)
+                    showErrorMessage = true
+                } else {
+                    coroutineScope.launch {
+                        try {
+                            val playerIds = mutableListOf<Long>()
+                            activePlayerNames.forEach { playerIds.add(viewModel.insertPlayerIfNotExists(it.trim())) }
+                            viewModel.insertGameSession(playerIds, selectedGameMode.toString(), selectedMoveType)
+                            navController.navigate(Screen.Game.createRoute(activePlayerNames.joinToString(",") { it.trim() }, selectedGameMode.toString(), selectedMoveType))
+                        } catch (e: Exception) {
+                            Log.e("GameSetupScreen", "Failed to start game", e)
+                            errorMessage = context.getString(R.string.error_generic)
+                            showErrorMessage = true
+                        }
                     }
+                }
+            }
+        }
+
+        if (showErrorMessage) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).padding(16.dp), contentAlignment = Alignment.Center) {
+                Surface(shape = RoundedCornerShape(12.dp), color = Color.White) {
+                    Text(errorMessage ?: "", color = Color.Red, modifier = Modifier.padding(16.dp), fontSize = 18.sp, textAlign = TextAlign.Center)
                 }
             }
         }
@@ -277,8 +274,8 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
 private fun FightSmartSetupBackground() {
     Box(Modifier.fillMaxSize()) {
         Image(painterResource(R.drawable.frame_fight), stringResource(R.string.frame_image), Modifier.fillMaxSize().blur(5.dp), contentScale = ContentScale.FillBounds)
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.56f)))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.18f), Color(0xAA0B0D10), Color.Black.copy(alpha = 0.55f)))))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.50f)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.12f), Color(0x990B0D10), Color.Black.copy(alpha = 0.48f)))))
     }
 }
 
