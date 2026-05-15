@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -81,7 +81,7 @@ private data class MoveOption(val label: String)
 fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewModel) {
     var numberOfPlayers by rememberSaveable { mutableIntStateOf(1) }
     val playerNames = remember { mutableStateListOf("") }
-    var selectedGameMode by rememberSaveable { mutableIntStateOf(6) }
+    var selectedGameMode by rememberSaveable { mutableIntStateOf(1) }
     var selectedCategory by rememberSaveable { mutableStateOf(MoveCategory.Punch) }
     var selectedMoveType by rememberSaveable { mutableStateOf("") }
 
@@ -167,6 +167,17 @@ fun GameSetupScreen(navController: NavHostController, viewModel: GameSetupViewMo
                                     },
                                     label = { Text(stringResource(R.string.player_number_short, i + 1)) },
                                     singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedLabelColor = Color.White.copy(alpha = 0.85f),
+                                        unfocusedLabelColor = Color.White.copy(alpha = 0.60f),
+                                        cursorColor = Color.White,
+                                        focusedBorderColor = Color.White.copy(alpha = 0.85f),
+                                        unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
+                                        focusedContainerColor = Color.Black.copy(alpha = 0.28f),
+                                        unfocusedContainerColor = Color.Black.copy(alpha = 0.22f)
+                                    ),
                                     modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
                                         if (state.isFocused) {
                                             focusedPlayerIndex = i
