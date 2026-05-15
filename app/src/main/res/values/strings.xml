@@ -2,7 +2,7 @@
 
     <string name="number_of_moves">Number of Moves: %d</string>
     <string name="stop_the_bag">Stop the bag!</string>
-    <string name="wait_until_still">Wait until the bag is still. The strike will only register when the bag stops swinging.</string>
+    <string name="wait_until_still">Wait until the bag is still.</string>
     <string name="force">Force: %.2f</string>
     <string name="next_move">Next Move</string>
     <string name="end_game">End Game</string>
