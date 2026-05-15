@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Surface
@@ -49,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -65,7 +68,7 @@ fun GameScreen(
 
     var currentPlayer by remember { mutableIntStateOf(0) }
     var currentMove by remember { mutableIntStateOf(0) }
-    var scores by remember { mutableStateOf(List(safePlayerList.size) { 0f }) }
+    var hitScores by remember { mutableStateOf(List(safePlayerList.size) { emptyList<Float>() }) }
 
     var isPreparing by remember { mutableStateOf(true) }
     var hitCaptured by remember { mutableStateOf(false) }
@@ -73,6 +76,9 @@ fun GameScreen(
     var capturedPeakG by remember { mutableFloatStateOf(0f) }
     var capturedScore by remember { mutableFloatStateOf(0f) }
     var bestHit by remember { mutableFloatStateOf(0f) }
+    var bagSwing by remember { mutableFloatStateOf(0f) }
+    var bagDepth by remember { mutableFloatStateOf(0f) }
+    var previousMotionG by remember { mutableFloatStateOf(0f) }
 
     var gInit by remember { mutableStateOf(false) }
     var gX by remember { mutableFloatStateOf(0f) }
@@ -80,7 +86,8 @@ fun GameScreen(
     var gZ by remember { mutableFloatStateOf(0f) }
 
     val alpha = 0.96f
-    val hitThresholdG = 3.0f
+    val hitThresholdG = 1.15f
+    val hitDeltaThresholdG = 0.38f
 
     fun toShortLE(lo: Byte, hi: Byte): Short {
         val u = ((hi.toInt() and 0xFF) shl 8) or (lo.toInt() and 0xFF)
@@ -104,11 +111,16 @@ fun GameScreen(
     fun processForceSample(axG: Float, ayG: Float, azG: Float) {
         val (lx, ly, lz) = applyGravityFilter(axG, ayG, azG)
         val totalG = sqrt(lx * lx + ly * ly + lz * lz)
+        val deltaG = abs(totalG - previousMotionG)
+        previousMotionG = totalG
         currentForceG = totalG
 
-        if (!isPreparing && !hitCaptured && totalG > hitThresholdG) {
+        bagSwing = (0.86f * bagSwing + 0.14f * (lx * 10f)).coerceIn(-18f, 18f)
+        bagDepth = (0.88f * bagDepth + 0.12f * (lz * 0.08f)).coerceIn(-0.10f, 0.12f)
+
+        if (!isPreparing && !hitCaptured && totalG > hitThresholdG && deltaG > hitDeltaThresholdG) {
             capturedPeakG = totalG
-            capturedScore = (totalG * 45f).coerceIn(0f, 999f)
+            capturedScore = (totalG * 65f).coerceIn(1f, 999f)
             if (capturedScore > bestHit) bestHit = capturedScore
             hitCaptured = true
         }
@@ -158,23 +170,23 @@ fun GameScreen(
         currentForceG = 0f
         capturedPeakG = 0f
         capturedScore = 0f
-        delay(850L)
+        previousMotionG = 0f
+        delay(650L)
         isPreparing = false
     }
 
     val gameFinished = currentPlayer >= safePlayerList.size
-    val totalTurns = safePlayerList.size * numberOfMoves
-    val completedTurns = (currentPlayer * numberOfMoves + currentMove).coerceIn(0, totalTurns)
     val moveName = selectedMoveType.ifBlank { stringResource(R.string.punch) }
-    val liveScore = if (hitCaptured) capturedScore else (currentForceG * 30f).coerceIn(0f, 999f)
+    val liveScore = if (hitCaptured) capturedScore else (currentForceG * 45f).coerceIn(0f, 999f)
     val forceFill = (liveScore / 300f).coerceIn(0f, 1f)
+    val isLastTurn = currentPlayer == safePlayerList.lastIndex && currentMove == numberOfMoves - 1
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
         FightSmartGameBackground()
 
         if (gameFinished) {
             Box(modifier = Modifier.fillMaxSize().padding(18.dp), contentAlignment = Alignment.Center) {
-                FinalScoresCard(playerList = safePlayerList, scores = scores)
+                FinalScoresCard(playerList = safePlayerList, hitScores = hitScores)
             }
         } else {
             val playerName = safePlayerList[currentPlayer]
@@ -195,16 +207,18 @@ fun GameScreen(
 
                 Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                        BagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, modifier = Modifier.fillMaxWidth().weight(1f))
+                        BagImpactPanel(hitCaptured = hitCaptured, forceFill = forceFill, bagSwing = bagSwing, bagDepth = bagDepth, modifier = Modifier.fillMaxWidth().weight(1f))
                         PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
-                        ScoreboardPanel(playerList = safePlayerList, scores = scores, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
+                        ScoreboardPanel(playerList = safePlayerList, currentPlayer = currentPlayer, currentHitScore = if (hitCaptured) capturedScore else null, modifier = Modifier.fillMaxWidth())
                     }
                     ForceMeter(fill = forceFill, score = liveScore, modifier = Modifier.width(92.dp).fillMaxHeight())
                 }
 
                 BottomGameSummary(players = safePlayerList.size, moves = "${currentMove + 1} / $numberOfMoves", moveName = moveName)
-                NextMoveButton(enabled = hitCaptured, text = stringResource(R.string.next_move)) {
-                    scores = scores.toMutableList().apply { this[currentPlayer] += capturedScore }
+                NextMoveButton(enabled = hitCaptured, text = if (isLastTurn) stringResource(R.string.end_game) else stringResource(R.string.next_move)) {
+                    hitScores = hitScores.toMutableList().also { list ->
+                        list[currentPlayer] = list[currentPlayer] + capturedScore
+                    }
                     currentMove++
                     if (currentMove >= numberOfMoves) {
                         currentMove = 0
@@ -258,7 +272,7 @@ private fun StatusStrip(text: String, active: Boolean) {
 }
 
 @Composable
-private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, modifier: Modifier = Modifier) {
+private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, bagSwing: Float, bagDepth: Float, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         if (hitCaptured) ImpactBurst(forceFill)
         Image(
@@ -266,9 +280,9 @@ private fun BagImpactPanel(hitCaptured: Boolean, forceFill: Float, modifier: Mod
             contentDescription = "Punching bag",
             modifier = Modifier.size(width = 150.dp, height = 280.dp).graphicsLayer {
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
-                rotationZ = if (hitCaptured) (-5f - 8f * forceFill) else 0f
-                scaleX = if (hitCaptured) 1f + forceFill * 0.05f else 1f
-                scaleY = if (hitCaptured) 1f + forceFill * 0.03f else 1f
+                rotationZ = bagSwing + if (hitCaptured) (-5f - 8f * forceFill) else 0f
+                scaleX = 1f + bagDepth + if (hitCaptured) forceFill * 0.05f else 0f
+                scaleY = 1f + bagDepth * 0.65f + if (hitCaptured) forceFill * 0.03f else 0f
             }
         )
     }
@@ -313,19 +327,15 @@ private fun CompactStatRow(label: String, value: String, accent: Boolean = false
 }
 
 @Composable
-private fun ScoreboardPanel(playerList: List<String>, scores: List<Float>, currentPlayer: Int, currentHitScore: Float?, modifier: Modifier = Modifier) {
+private fun ScoreboardPanel(playerList: List<String>, currentPlayer: Int, currentHitScore: Float?, modifier: Modifier = Modifier) {
     MetallicPanel(modifier, 18) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
             Text(stringResource(R.string.scoreboard).uppercase(), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 4.dp))
             playerList.forEachIndexed { index, name ->
-                val shownScore = when {
-                    index == currentPlayer && currentHitScore != null -> currentHitScore
-                    scores[index] > 0f -> scores[index]
-                    else -> null
-                }
+                val shownScore = if (index == currentPlayer && currentHitScore != null) currentHitScore.roundToInt().toString() else "--"
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (index == currentPlayer) Color(0x33FF3B30) else Color.Transparent).padding(horizontal = 8.dp, vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text(shownScore?.roundToInt()?.toString() ?: "--", color = if (shownScore != null) Color(0xFFFF5A4E) else Color.White.copy(alpha = 0.55f), fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Text(shownScore, color = if (shownScore != "--") Color(0xFFFF5A4E) else Color.White.copy(alpha = 0.55f), fontSize = 17.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -413,20 +423,39 @@ private fun MetallicPanel(modifier: Modifier = Modifier, cornerRadius: Int = 20,
 }
 
 @Composable
-private fun FinalScoresCard(playerList: List<String>, scores: List<Float>) {
-    val winnerIndex = scores.indexOf(scores.maxOrNull() ?: 0f)
+private fun FinalScoresCard(playerList: List<String>, hitScores: List<List<Float>>) {
+    val totals = hitScores.map { hits -> hits.sum() }
+    val winnerIndex = totals.indexOf(totals.maxOrNull() ?: 0f)
     MetallicPanel(Modifier.fillMaxWidth(), 26) {
-        Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.final_scores), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             playerList.forEachIndexed { index, name ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.25f)).padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(name, color = Color.White, fontSize = 17.sp)
-                    Text(scores[index].roundToInt().toString(), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
+                PlayerFinalScoreBlock(name = name, hits = hitScores.getOrElse(index) { emptyList() }, total = totals.getOrElse(index) { 0f })
             }
             if (winnerIndex in playerList.indices) {
                 Text(stringResource(R.string.winner, playerList[winnerIndex]), color = Color(0xFFFF5A4E), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun PlayerFinalScoreBlock(name: String, hits: List<Float>, total: Float) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.25f)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        if (hits.isEmpty()) {
+            Text("--", color = Color.White.copy(alpha = 0.55f), fontSize = 14.sp)
+        } else {
+            hits.forEachIndexed { hitIndex, score ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(stringResource(R.string.hit_number, hitIndex + 1), color = Color.White.copy(alpha = 0.70f), fontSize = 13.sp)
+                    Text(score.roundToInt().toString(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(stringResource(R.string.total), color = Color(0xFFFF5A4E), fontSize = 15.sp, fontWeight = FontWeight.Black)
+            Text(total.roundToInt().toString(), color = Color(0xFFFF5A4E), fontSize = 17.sp, fontWeight = FontWeight.Black)
         }
     }
 }
