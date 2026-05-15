@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -17,10 +16,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -163,17 +160,6 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                         composable(Screen.Training.route) { TrainingScreen() }
                         composable(Screen.Leaderboard.route) { LeaderboardScreen() }
                         composable(Screen.Settings.route) { SettingsScreen() }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .padding(12.dp)
-                            .align(Alignment.TopStart)
-                    ) {
-                        SensorOverlay(
-                            bluetoothManager = bluetoothManager,
-                            visible = isConnectedState.value
-                        )
                     }
                 }
             }
