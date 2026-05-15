@@ -153,7 +153,10 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                                 playerNames = playerNames,
                                 gameMode = gameMode,
                                 selectedMoveType = selectedMoveType,
-                                bluetoothManager = bluetoothManager
+                                bluetoothManager = bluetoothManager,
+                                onBackToMenu = {
+                                    navController.popBackStack(Screen.Home.route, inclusive = false)
+                                }
                             )
                         }
 
