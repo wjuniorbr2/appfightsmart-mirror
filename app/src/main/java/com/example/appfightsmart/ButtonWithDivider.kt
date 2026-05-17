@@ -28,13 +28,14 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun ButtonWithDivider(
     onClick: () -> Unit,
-    text: String
+    text: String,
+    compact: Boolean = false
 ) {
     Surface(
         modifier = Modifier
-            .padding(vertical = 12.dp)
-            .width(200.dp)
-            .height(58.05.dp)
+            .padding(vertical = if (compact) 6.dp else 12.dp)
+            .width(if (compact) 150.dp else 200.dp)
+            .height(if (compact) 50.dp else 58.05.dp)
             .shadow(8.dp, shape = RoundedCornerShape(12.dp), ambientColor = Color.Black),
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
@@ -71,7 +72,7 @@ fun ButtonWithDivider(
         ) {
             Text(
                 text = text,
-                fontSize = 18.sp,
+                fontSize = if (compact) 14.sp else 18.sp,
                 style = TextStyle(
                     color = Color.White,
                     fontFamily = FontFamily(Font(R.font.merriweather_24pt_regular)),
@@ -80,8 +81,7 @@ fun ButtonWithDivider(
             )
         }
     }
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 32.dp),
-        color = Color.Gray
-    )
+    if (!compact) {
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 32.dp), color = Color.Gray)
+    }
 }
