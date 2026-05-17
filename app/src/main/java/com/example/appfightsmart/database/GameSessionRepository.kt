@@ -1,72 +1,77 @@
 package com.example.appfightsmart.database
 
-import android.util.Log
-
 class GameSessionRepository(private val gameSessionDao: GameSessionDao) {
 
-    // Insert a new player
     suspend fun insertPlayer(playerName: String): Long {
-        Log.d("GameSessionRepository", "Inserting player: $playerName")
-        val player = Player(playerName = playerName)
-        return gameSessionDao.insertPlayer(player)
+        return gameSessionDao.insertPlayer(Player(playerName = playerName.trim()))
     }
 
-    // Insert a new game session
-    suspend fun insertGameSession(playerIds: List<Long>, gameMode: String, selectedMoveType: String) {
-        Log.d("GameSessionRepository", "Inserting game session with player IDs: $playerIds")
-        try {
-            val gameSession = GameSession(gameMode = gameMode, selectedMoveType = selectedMoveType, date = System.currentTimeMillis())
-            val sessionId = gameSessionDao.insertGameSession(gameSession)
-            Log.d("GameSessionRepository", "Game session inserted with ID: $sessionId")
-
-            playerIds.forEach { playerId ->
-                // Check if the player is already linked to the session
-                val existingLink = gameSessionDao.getPlayerGameSession(playerId, sessionId)
-                if (existingLink == null) {
-                    gameSessionDao.insertPlayerGameSession(PlayerGameSession(playerId = playerId, sessionId = sessionId))
-                    Log.d("GameSessionRepository", "Linked player $playerId to game session $sessionId")
-                } else {
-                    Log.d("GameSessionRepository", "Player $playerId is already linked to game session $sessionId")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("GameSessionRepository", "Error inserting game session: ${e.message}", e)
-            throw e
+    suspend fun savePlayerProfile(
+        playerName: String,
+        heightCm: Int?,
+        naturalPunchHeightCm: Int?,
+        dominantHand: String?
+    ): Long {
+        val cleanName = playerName.trim()
+        val existing = gameSessionDao.getPlayerByName(cleanName)
+        return if (existing == null) {
+            gameSessionDao.insertPlayer(
+                Player(
+                    playerName = cleanName,
+                    heightCm = heightCm,
+                    naturalPunchHeightCm = naturalPunchHeightCm,
+                    dominantHand = dominantHand
+                )
+            )
+        } else {
+            gameSessionDao.updatePlayer(
+                existing.copy(
+                    heightCm = heightCm,
+                    naturalPunchHeightCm = naturalPunchHeightCm,
+                    dominantHand = dominantHand
+                )
+            )
+            existing.playerId
         }
     }
 
+    suspend fun getPlayerByName(playerName: String): Player? {
+        return gameSessionDao.getPlayerByName(playerName.trim())
+    }
 
-    // Search for players by name
+    suspend fun getPlayersByNames(playerNames: List<String>): List<Player?> {
+        return playerNames.map { gameSessionDao.getPlayerByName(it.trim()) }
+    }
+
+    suspend fun insertGameSession(playerIds: List<Long>, gameMode: String, selectedMoveType: String) {
+        val gameSession = GameSession(gameMode = gameMode, selectedMoveType = selectedMoveType, date = System.currentTimeMillis())
+        val sessionId = gameSessionDao.insertGameSession(gameSession)
+        playerIds.forEach { playerId ->
+            if (gameSessionDao.getPlayerGameSession(playerId, sessionId) == null) {
+                gameSessionDao.insertPlayerGameSession(PlayerGameSession(playerId = playerId, sessionId = sessionId))
+            }
+        }
+    }
+
     suspend fun searchPlayers(query: String): List<Player> {
-        Log.d("GameSessionRepository", "Searching for players with query: $query")
         return gameSessionDao.searchPlayers("%$query%")
     }
 
-    // Get all players
     suspend fun getAllPlayers(): List<Player> {
-        Log.d("GameSessionRepository", "Fetching all players")
         return gameSessionDao.getAllPlayers()
     }
 
-    // Get all game sessions for a specific player
     suspend fun getGameSessionsForPlayer(playerId: Long): List<GameSession> {
-        Log.d("GameSessionRepository", "Fetching game sessions for player ID: $playerId")
         return gameSessionDao.getGameSessionsForPlayer(playerId)
     }
 
-    // Get all players for a specific game session
     suspend fun getPlayersForGameSession(sessionId: Long): List<Player> {
-        Log.d("GameSessionRepository", "Fetching players for game session ID: $sessionId")
         return gameSessionDao.getPlayersForGameSession(sessionId)
     }
 
     suspend fun insertPlayerIfNotExists(playerName: String): Long {
-        val existingPlayer = gameSessionDao.getPlayerByName(playerName)
-        return if (existingPlayer != null) {
-            existingPlayer.playerId // Return the existing player's ID
-        } else {
-            val player = Player(playerName = playerName)
-            gameSessionDao.insertPlayer(player) // Insert new player and return their ID
-        }
+        val cleanName = playerName.trim()
+        val existingPlayer = gameSessionDao.getPlayerByName(cleanName)
+        return existingPlayer?.playerId ?: gameSessionDao.insertPlayer(Player(playerName = cleanName))
     }
 }
