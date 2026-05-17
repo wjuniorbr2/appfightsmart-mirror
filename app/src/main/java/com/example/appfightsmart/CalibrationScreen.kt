@@ -337,13 +337,20 @@ private fun parseFrame(b: ByteArray): ParsedFrame {
     if (b.size < 11 || b[0] != 0x55.toByte()) return ParsedFrame("raw_${b.size}_bytes")
     fun s16(i: Int): Int = ((b[i + 1].toInt()) shl 8) or (b[i].toInt() and 0xFF)
     fun head(d: Double): Double { var v = d % 360.0; if (v < 0) v += 360.0; return v }
+    fun accFrame(name: String): ParsedFrame {
+        val x = s16(2) / 32768.0 * 16.0
+        val y = s16(4) / 32768.0 * 16.0
+        val z = s16(6) / 32768.0 * 16.0
+        val mag = sqrt(x * x + y * y + z * z)
+        return ParsedFrame(name, x, y, z, mag, s16(8) / 100.0, motionScore = abs(x) + abs(y) + abs(z))
+    }
     return when (b[1].toInt() and 0xFF) {
-        0x51 -> { val x=s16(2)/32768.0*16.0; val y=s16(4)/32768.0*16.0; val z=s16(6)/32768.0*16.0; ParsedFrame("acceleration_temperature", x,y,z, sqrt(x*x+y*y+z*z), s16(8)/100.0, motionScore=abs(x)+abs(y)+abs(z)) }
+        0x51 -> accFrame("acceleration_temperature")
         0x52 -> { val x=s16(2)/32768.0*2000.0; val y=s16(4)/32768.0*2000.0; val z=s16(6)/32768.0*2000.0; ParsedFrame("gyroscope", gyroX=x, gyroY=y, gyroZ=z, gyroMag=sqrt(x*x+y*y+z*z), motionScore=abs(x)+abs(y)+abs(z)) }
         0x53 -> { val roll=s16(2)/32768.0*180.0; val pitch=s16(4)/32768.0*180.0; val yaw=s16(6)/32768.0*180.0; ParsedFrame("tilt_angle_yaw_compass", angleX=roll, angleY=pitch, angleZ=yaw, tiltMag=sqrt(roll*roll+pitch*pitch), yawCompass=head(yaw)) }
         0x54 -> { val x=s16(2); val y=s16(4); val z=s16(6); ParsedFrame("magnetometer_magnetic_compass", magX=x, magY=y, magZ=z, magMag=sqrt((x*x+y*y+z*z).toDouble()), magneticCompass=head(atan2(y.toDouble(), x.toDouble())*180.0/PI)) }
         0x59 -> ParsedFrame("quaternion_possible", q0=s16(2)/32768.0, q1=s16(4)/32768.0, q2=s16(6)/32768.0, q3=s16(8)/32768.0)
-        0x61 -> ParsedFrame("combined_0x61_raw_saved")
+        0x61 -> accFrame("combined_0x61_acceleration")
         0x62 -> ParsedFrame("combined_0x62_raw_saved")
         0x63 -> ParsedFrame("combined_0x63_raw_saved")
         0x64 -> ParsedFrame("combined_0x64_raw_saved")
