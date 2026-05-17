@@ -119,7 +119,7 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
         return BufferedWriter(FileWriter(file, false)).also {
             it.write("# FightSmart maximum raw punch calibration\n")
             it.write("# Calibration plan: ${selected.label}\n")
-            it.write("# TEST MODE: only Jab 80 cm is enabled in the UI.\n")
+            it.write("# All calibration buttons enabled after Jab 80 cm recording test.\n")
             it.write("# Bag height 160 cm; bag elevation corrected to about 40+ cm; sensor about 80 cm from bag bottom.\n")
             it.write("# Stop before each punch; after punching let the bag swing until recording ends.\n")
             it.write(header()); it.newLine(); it.flush()
@@ -234,18 +234,18 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
     Scaffold(topBar = { TopAppBar(title = { Text("Sensor Calibration") }, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Maximum raw punch calibration", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            Text("Test mode: only Jab 80 cm is enabled. Check live frames before recording.", textAlign = TextAlign.Center)
+            Text("Choose one move/height file. Check live frames before recording.", textAlign = TextAlign.Center)
             LiveFrameCard(liveFramesSeen, idleFramesSeen, last, warning, error)
             if (!started) {
                 InfoCard()
                 PlanSelector(plan) { plan = it }
-                Button(enabled = plan == calPlans.first(), onClick = { plan?.let { start(it) } }) { Text("Create file and start Jab 80 cm test") }
+                Button(enabled = plan != null, onClick = { plan?.let { start(it) } }) { Text("Create file and start calibration") }
             } else if (finished) {
                 Text("Calibration finished.", fontWeight = FontWeight.Bold)
                 Text("Saved file:", fontWeight = FontWeight.Bold)
                 Text(outputPath ?: "Unknown path", textAlign = TextAlign.Center)
                 Text("Rows written: $totalRows", fontWeight = FontWeight.Bold)
-                Button(onClick = { started = false; finished = false; plan = calPlans.first(); outputPath = null; index = 0; stepRows = 0; totalRows = 0; warning = null; error = null }) { Text("Choose another calibration") }
+                Button(onClick = { started = false; finished = false; outputPath = null; index = 0; stepRows = 0; totalRows = 0; warning = null; error = null }) { Text("Choose another calibration") }
             } else if (step != null) {
                 Text("Plan: ${plan?.label ?: "--"} | Steps: ${steps.size}", fontWeight = FontWeight.Bold)
                 StepCard(step, index + 1, steps.size, recording, secondsLeft, stepRows, totalRows, liveFramesSeen, last, warning, error)
@@ -275,11 +275,9 @@ private fun PlanSelector(selected: CalPlan?, onSelect: (CalPlan) -> Unit) {
         calPlans.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { p ->
-                    val enabled = p == calPlans.first()
                     when {
-                        selected == p && enabled -> Button({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
-                        enabled -> OutlinedButton({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
-                        else -> OutlinedButton(enabled = false, onClick = { }, modifier = Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
+                        selected == p -> Button({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
+                        else -> OutlinedButton({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -303,10 +301,10 @@ private fun LiveFrameCard(liveFramesSeen: Int, idleFramesSeen: Int, last: String
 @Composable
 private fun InfoCard() = Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(12.dp)) {
     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Test plan", fontWeight = FontWeight.Bold)
-        Text("1. For now, only Jab 80 cm is enabled so we can test quickly.")
-        Text("2. First check that Live sensor frames is increasing.")
-        Text("3. Then record baseline + light x3, medium x3, strong x3.")
+        Text("Calibration plan", fontWeight = FontWeight.Bold)
+        Text("1. Choose one move/height calibration file.")
+        Text("2. Check that Live sensor frames is increasing.")
+        Text("3. Record baseline + light x3, medium x3, strong x3.")
         Text("4. If a step records zero frames, stop and send me the result.")
     }
 }
