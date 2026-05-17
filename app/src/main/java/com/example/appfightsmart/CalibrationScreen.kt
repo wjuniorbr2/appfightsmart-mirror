@@ -77,7 +77,7 @@ private data class ParsedFrame(
 fun CalibrationScreen(navController: NavHostController, bluetoothManager: BluetoothManager) {
     val context = LocalContext.current
     val lock = remember { Any() }
-    var plan by remember { mutableStateOf<CalPlan?>(null) }
+    var plan by remember { mutableStateOf<CalPlan?>(calPlans.first()) }
     val steps = remember(plan) { plan?.let { buildSteps(it) }.orEmpty() }
     var writer by remember { mutableStateOf<BufferedWriter?>(null) }
     var outputPath by remember { mutableStateOf<String?>(null) }
@@ -89,9 +89,24 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
     var stepStart by remember { mutableLongStateOf(0L) }
     var stepRows by remember { mutableIntStateOf(0) }
     var totalRows by remember { mutableIntStateOf(0) }
+    var liveFramesSeen by remember { mutableIntStateOf(0) }
+    var idleFramesSeen by remember { mutableIntStateOf(0) }
     var last by remember { mutableStateOf("Waiting for sensor data...") }
+    var warning by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val step = steps.getOrNull(index)
+    val currentRecording by rememberUpdatedState(recording)
+    val currentStep by rememberUpdatedState(step)
+
+    LaunchedEffect(Unit) {
+        delay(250)
+        try {
+            bluetoothManager.enableAnglesAndMagAt100Hz()
+            last = "Sensor stream command sent. Waiting for live frames..."
+        } catch (e: Exception) {
+            warning = "Could not send sensor stream command: ${e.message}"
+        }
+    }
 
     fun closeFile() = synchronized(lock) { writer?.flush(); writer?.close(); writer = null }
 
@@ -104,6 +119,7 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
         return BufferedWriter(FileWriter(file, false)).also {
             it.write("# FightSmart maximum raw punch calibration\n")
             it.write("# Calibration plan: ${selected.label}\n")
+            it.write("# TEST MODE: only Jab 80 cm is enabled in the UI.\n")
             it.write("# Bag height 160 cm; bag elevation corrected to about 40+ cm; sensor about 80 cm from bag bottom.\n")
             it.write("# Stop before each punch; after punching let the bag swing until recording ends.\n")
             it.write(header()); it.newLine(); it.flush()
@@ -111,9 +127,18 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
     }
 
     fun start(selected: CalPlan) {
-        closeFile(); writer = newFile(selected)
-        started = true; finished = false; index = 0; stepRows = 0; totalRows = 0; error = null
-        last = "File created. Start the first step."
+        closeFile()
+        try { bluetoothManager.enableAnglesAndMagAt100Hz() } catch (_: Exception) {}
+        writer = newFile(selected)
+        started = true
+        finished = false
+        index = 0
+        stepRows = 0
+        totalRows = 0
+        idleFramesSeen = 0
+        warning = null
+        error = null
+        last = "File created. Live frames seen: $liveFramesSeen. Start the first step."
     }
 
     fun writeMarker(marker: String, active: CalStep?) {
@@ -122,7 +147,15 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
         val raw = List(RAW_BYTES) { "" }
         val elapsed = if (stepStart > 0L) System.currentTimeMillis() - stepStart else 0L
         val row = listOf(now(), (index + 1).toString(), steps.size.toString(), csv(active.type), csv(active.move), csv(active.force), active.height.toString(), active.rep.toString(), active.totalReps.toString(), elapsed.toString(), "0", csv(marker), csv("")) + emptyParsed + raw
-        synchronized(lock) { try { writer?.write(row.joinToString(",")); writer?.newLine(); writer?.flush() } catch (e: Exception) { error = e.message } }
+        synchronized(lock) {
+            try {
+                writer?.write(row.joinToString(","))
+                writer?.newLine()
+                writer?.flush()
+            } catch (e: Exception) {
+                error = e.message
+            }
+        }
     }
 
     fun writeFrame(bytes: ByteArray, active: CalStep, parsed: ParsedFrame) {
@@ -138,19 +171,34 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
         )
         val row = listOf(now(), (index + 1).toString(), steps.size.toString(), csv(active.type), csv(active.move), csv(active.force), active.height.toString(), active.rep.toString(), active.totalReps.toString(), elapsed.toString(), bytes.size.toString(), csv(parsed.frameType), csv(bytes.hex())) + parsedValues + rawBytes
         synchronized(lock) {
-            try { writer?.write(row.joinToString(",")); writer?.newLine(); writer?.flush(); totalRows++ }
-            catch (e: Exception) { error = e.message ?: "Unknown file write error"; recording = false }
+            try {
+                writer?.write(row.joinToString(","))
+                writer?.newLine()
+                writer?.flush()
+                totalRows++
+            } catch (e: Exception) {
+                error = e.message ?: "Unknown file write error"
+                recording = false
+            }
         }
     }
 
-    DisposableEffect(bluetoothManager, recording, index) {
+    DisposableEffect(bluetoothManager) {
         val listener: (ByteArray) -> Unit = { bytes ->
-            val active = step
-            if (recording && active != null) {
-                val parsed = parseFrame(bytes)
-                writeFrame(bytes, active, parsed)
-                stepRows++
-                last = "Last frame: ${parsed.frameType} | step rows: $stepRows | total rows: $totalRows"
+            liveFramesSeen++
+            val parsed = parseFrame(bytes)
+            if (currentRecording) {
+                val active = currentStep
+                if (active != null) {
+                    writeFrame(bytes, active, parsed)
+                    stepRows++
+                    last = "Recording: ${parsed.frameType} | step rows: $stepRows | total rows: $totalRows | live frames: $liveFramesSeen"
+                }
+            } else {
+                idleFramesSeen++
+                if (idleFramesSeen == 1 || idleFramesSeen % 40 == 0) {
+                    last = "Live sensor frames arriving: $liveFramesSeen | last: ${parsed.frameType}"
+                }
             }
         }
         bluetoothManager.addDataListener(listener)
@@ -161,10 +209,24 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
 
     LaunchedEffect(recording, secondsLeft) {
         if (recording && secondsLeft > 0) {
-            delay(1000L); secondsLeft--
+            delay(1000L)
+            secondsLeft--
             if (secondsLeft <= 0) {
-                recording = false; writeMarker("STEP_END", step)
-                if (index >= steps.lastIndex) { finished = true; closeFile() } else index++
+                val rowsThisStep = stepRows
+                recording = false
+                writeMarker("STEP_END", step)
+                if (rowsThisStep == 0) {
+                    warning = "This step recorded ZERO sensor frames. Do not continue calibration until live frames are visible."
+                    last = "ZERO frames recorded in this step. Check sensor stream/connection."
+                } else {
+                    warning = null
+                }
+                if (index >= steps.lastIndex) {
+                    finished = true
+                    closeFile()
+                } else {
+                    index++
+                }
             }
         }
     }
@@ -172,21 +234,32 @@ fun CalibrationScreen(navController: NavHostController, bluetoothManager: Blueto
     Scaffold(topBar = { TopAppBar(title = { Text("Sensor Calibration") }, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Maximum raw punch calibration", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            Text("Choose one move and one height for a small file. RawHex and raw byte columns are saved.", textAlign = TextAlign.Center)
+            Text("Test mode: only Jab 80 cm is enabled. Check live frames before recording.", textAlign = TextAlign.Center)
+            LiveFrameCard(liveFramesSeen, idleFramesSeen, last, warning, error)
             if (!started) {
-                InfoCard(); PlanSelector(plan) { plan = it }
-                Button(enabled = plan != null, onClick = { plan?.let { start(it) } }) { Text("Create file and start selected calibration") }
+                InfoCard()
+                PlanSelector(plan) { plan = it }
+                Button(enabled = plan == calPlans.first(), onClick = { plan?.let { start(it) } }) { Text("Create file and start Jab 80 cm test") }
             } else if (finished) {
                 Text("Calibration finished.", fontWeight = FontWeight.Bold)
                 Text("Saved file:", fontWeight = FontWeight.Bold)
                 Text(outputPath ?: "Unknown path", textAlign = TextAlign.Center)
                 Text("Rows written: $totalRows", fontWeight = FontWeight.Bold)
-                Button(onClick = { started = false; finished = false; plan = null; outputPath = null; index = 0; stepRows = 0; totalRows = 0 }) { Text("Choose another calibration") }
+                Button(onClick = { started = false; finished = false; plan = calPlans.first(); outputPath = null; index = 0; stepRows = 0; totalRows = 0; warning = null; error = null }) { Text("Choose another calibration") }
             } else if (step != null) {
                 Text("Plan: ${plan?.label ?: "--"} | Steps: ${steps.size}", fontWeight = FontWeight.Bold)
-                StepCard(step, index + 1, steps.size, recording, secondsLeft, stepRows, totalRows, last, error)
+                StepCard(step, index + 1, steps.size, recording, secondsLeft, stepRows, totalRows, liveFramesSeen, last, warning, error)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(enabled = !recording && error == null, onClick = { stepRows = 0; last = "Recording..."; stepStart = System.currentTimeMillis(); writeMarker("STEP_START", step); secondsLeft = step.seconds; recording = true }) { Text(if (step.type == "baseline") "Record still bag" else "Record this punch") }
+                    Button(enabled = !recording && error == null, onClick = {
+                        try { bluetoothManager.enableAnglesAndMagAt100Hz() } catch (_: Exception) {}
+                        stepRows = 0
+                        warning = null
+                        last = "Recording... waiting for sensor frames."
+                        stepStart = System.currentTimeMillis()
+                        writeMarker("STEP_START", step)
+                        secondsLeft = step.seconds
+                        recording = true
+                    }) { Text(if (step.type == "baseline") "Record still bag" else "Record this punch") }
                     OutlinedButton(enabled = !recording, onClick = { writeMarker("STEP_SKIPPED", step); if (index < steps.lastIndex) index++ else finished = true }) { Text("Skip") }
                 }
                 Text("File: ${outputPath ?: "not created"}", fontSize = 11.sp, textAlign = TextAlign.Center)
@@ -201,7 +274,14 @@ private fun PlanSelector(selected: CalPlan?, onSelect: (CalPlan) -> Unit) {
         Text("Calibration file type", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         calPlans.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                row.forEach { p -> if (selected == p) Button({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) } else OutlinedButton({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) } }
+                row.forEach { p ->
+                    val enabled = p == calPlans.first()
+                    when {
+                        selected == p && enabled -> Button({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
+                        enabled -> OutlinedButton({ onSelect(p) }, Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
+                        else -> OutlinedButton(enabled = false, onClick = { }, modifier = Modifier.weight(1f)) { Text(p.label, textAlign = TextAlign.Center) }
+                    }
+                }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
@@ -209,25 +289,38 @@ private fun PlanSelector(selected: CalPlan?, onSelect: (CalPlan) -> Unit) {
 }
 
 @Composable
-private fun InfoCard() = Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(12.dp)) {
-    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Test plan", fontWeight = FontWeight.Bold)
-        Text("1. Best option: one move and one height per file, for example Jab 80 cm.")
-        Text("2. Each small file has only baseline + 9 punch steps.")
-        Text("3. Punch steps are light x3, medium x3, and strong x3.")
-        Text("4. Heights are measured from the bottom of the bag.")
-        Text("5. Stop before each punch. After punching, let it swing until recording ends.")
+private fun LiveFrameCard(liveFramesSeen: Int, idleFramesSeen: Int, last: String, warning: String?, err: String?) = Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Live sensor frames: $liveFramesSeen", fontWeight = FontWeight.Bold)
+        Text("Frames while not recording: $idleFramesSeen", fontSize = 12.sp)
+        Text(last, fontSize = 12.sp)
+        if (liveFramesSeen == 0) Text("If this stays at zero while the sensor is connected, recording will create only STEP_START / STEP_END markers.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+        if (warning != null) Text(warning, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+        if (err != null) Text("File error: $err", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-private fun StepCard(s: CalStep, n: Int, total: Int, rec: Boolean, left: Int, stepRows: Int, totalRows: Int, last: String, err: String?) = Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(12.dp)) {
+private fun InfoCard() = Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(12.dp)) {
+    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Test plan", fontWeight = FontWeight.Bold)
+        Text("1. For now, only Jab 80 cm is enabled so we can test quickly.")
+        Text("2. First check that Live sensor frames is increasing.")
+        Text("3. Then record baseline + light x3, medium x3, strong x3.")
+        Text("4. If a step records zero frames, stop and send me the result.")
+    }
+}
+
+@Composable
+private fun StepCard(s: CalStep, n: Int, total: Int, rec: Boolean, left: Int, stepRows: Int, totalRows: Int, liveFramesSeen: Int, last: String, warning: String?, err: String?) = Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(12.dp)) {
     Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Step $n of $total", fontWeight = FontWeight.Bold)
         Text(s.instruction, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         if (s.type != "baseline") { Text("Move: ${s.move} | Force: ${s.force}"); Text("Height: ${s.height} cm from bottom | Repetition: ${s.rep} of ${s.totalReps}") }
         if (rec) Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp)) { Text("Recording... $left s left", Modifier.padding(10.dp), fontWeight = FontWeight.Bold) } else Text("Stop the bag before pressing Record.")
-        Text(last, fontSize = 12.sp); Text("Step rows: $stepRows | Total rows: $totalRows", fontSize = 12.sp)
+        Text("Live frames: $liveFramesSeen | Step rows: $stepRows | Total rows: $totalRows", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(last, fontSize = 12.sp)
+        if (warning != null) Text(warning, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
         if (err != null) Text("File error: $err", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
     }
 }
