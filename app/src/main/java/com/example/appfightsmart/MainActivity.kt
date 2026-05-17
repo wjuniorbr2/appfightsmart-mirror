@@ -12,8 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,10 +42,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val sharedPreferences = getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
         val isDarkMode = sharedPreferences.getBoolean("dark_mode", false)
-
-        setContent {
-            FightSmartApp(isDarkMode, repository)
-        }
+        setContent { FightSmartApp(isDarkMode, repository) }
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -72,14 +69,7 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
             Surface(color = MaterialTheme.colorScheme.background) {
                 val navController = rememberNavController()
                 val context = LocalContext.current
-
-                val bluetoothManager = remember {
-                    BluetoothManager(
-                        context = context,
-                        onConnectionStateChange = { }
-                    )
-                }
-
+                val bluetoothManager = remember { BluetoothManager(context = context, onConnectionStateChange = { }) }
                 val isConnectedState = remember { mutableStateOf(false) }
                 val hasTriedInitialSensorConnection = rememberSaveable { mutableStateOf(false) }
                 val batteryPercentState = remember { mutableStateOf<Int?>(null) }
@@ -106,13 +96,9 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    NavHost(
-                        navController = navController,
-                        startDestination = Screen.Home.route
-                    ) {
+                    NavHost(navController = navController, startDestination = Screen.Home.route) {
                         composable(Screen.Home.route) {
                             val uiScope = rememberCoroutineScope()
-
                             LaunchedEffect(Unit) {
                                 bluetoothManager.setOnConnectionStateChange { connected ->
                                     isConnectedState.value = connected
@@ -120,34 +106,22 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                                         Log.d("WitBLE", "UI after-connect: scheduling WIT config push")
                                         uiScope.launch {
                                             delay(300)
-                                            Log.d("WitBLE", "UI sending enableAnglesAndMagAt100Hz()")
                                             bluetoothManager.enableAnglesAndMagAt100Hz()
                                         }
                                     }
                                 }
                             }
-
                             HomeScreen(
                                 navController = navController,
                                 bluetoothManager = bluetoothManager,
                                 sensorConnected = isConnectedState.value,
                                 hasTriedInitialSensorConnection = hasTriedInitialSensorConnection.value,
-                                onInitialSensorConnectionTried = {
-                                    hasTriedInitialSensorConnection.value = true
-                                },
-                                onSensorConnectionChanged = { connected ->
-                                    isConnectedState.value = connected
-                                }
+                                onInitialSensorConnectionTried = { hasTriedInitialSensorConnection.value = true },
+                                onSensorConnectionChanged = { connected -> isConnectedState.value = connected }
                             )
                         }
-
-                        composable(Screen.Calibration.route) {
-                            CalibrationScreen(
-                                navController = navController,
-                                bluetoothManager = bluetoothManager
-                            )
-                        }
-
+                        composable(Screen.Calibration.route) { CalibrationScreen(navController = navController, bluetoothManager = bluetoothManager) }
+                        composable(Screen.PlayerProfiles.route) { PlayerProfilesScreen(navController = navController, repository = repository) }
                         composable(Screen.GameSetup.route) {
                             GameSetupScreen(
                                 navController,
@@ -157,32 +131,27 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                                 signalRssi = signalRssiState.value
                             )
                         }
-
                         composable(
                             route = Screen.Game.route,
                             arguments = listOf(
                                 navArgument("playerNames") { defaultValue = "" },
                                 navArgument("gameMode") { defaultValue = "" },
-                                navArgument("selectedMoveType") { defaultValue = "" }
+                                navArgument("selectedMoveType") { defaultValue = "" },
+                                navArgument("playerHeights") { defaultValue = "" }
                             )
                         ) { backStackEntry ->
-                            val playerNames = backStackEntry.arguments?.getString("playerNames") ?: ""
-                            val gameMode = backStackEntry.arguments?.getString("gameMode") ?: ""
-                            val selectedMoveType = backStackEntry.arguments?.getString("selectedMoveType") ?: ""
                             GameScreen(
-                                playerNames = playerNames,
-                                gameMode = gameMode,
-                                selectedMoveType = selectedMoveType,
+                                playerNames = backStackEntry.arguments?.getString("playerNames") ?: "",
+                                gameMode = backStackEntry.arguments?.getString("gameMode") ?: "",
+                                selectedMoveType = backStackEntry.arguments?.getString("selectedMoveType") ?: "",
+                                playerHeights = backStackEntry.arguments?.getString("playerHeights") ?: "",
                                 bluetoothManager = bluetoothManager,
                                 sensorConnected = isConnectedState.value,
                                 batteryPercent = batteryPercentState.value,
                                 signalRssi = signalRssiState.value,
-                                onBackToMenu = {
-                                    navController.popBackStack(Screen.GameSetup.route, inclusive = false)
-                                }
+                                onBackToMenu = { navController.popBackStack(Screen.GameSetup.route, inclusive = false) }
                             )
                         }
-
                         composable(Screen.Training.route) { TrainingScreen() }
                         composable(Screen.Leaderboard.route) { LeaderboardScreen() }
                         composable(Screen.Settings.route) { SettingsScreen() }
