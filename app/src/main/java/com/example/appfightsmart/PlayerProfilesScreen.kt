@@ -7,12 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -48,8 +48,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import com.example.appfightsmart.database.Player
 import com.example.appfightsmart.database.GameSessionRepository
+import com.example.appfightsmart.database.Player
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,16 +63,11 @@ fun PlayerProfilesScreen(navController: NavHostController, repository: GameSessi
     var dominantHand by remember { mutableStateOf("Right") }
     var message by remember { mutableStateOf("") }
 
-    fun reload() {
-        scope.launch { players = repository.getAllPlayers() }
-    }
+    fun reload() { scope.launch { players = repository.getAllPlayers() } }
     LaunchedEffect(Unit) { reload() }
 
     Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Add players") },
-            navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
-        )
+        TopAppBar(title = { Text("Add players") }, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             Image(painterResource(R.drawable.frame_fight), null, Modifier.fillMaxSize().blur(5.dp), contentScale = ContentScale.FillBounds)
@@ -99,14 +94,16 @@ fun PlayerProfilesScreen(navController: NavHostController, repository: GameSessi
                             scope.launch {
                                 repository.savePlayerProfile(cleanName, height.toIntOrNull(), punchHeight.toIntOrNull(), dominantHand)
                                 message = "Saved $cleanName"
-                                name = ""; height = ""; punchHeight = ""; dominantHand = "Right"
+                                name = ""
+                                height = ""
+                                punchHeight = ""
+                                dominantHand = "Right"
                                 reload()
                             }
                         }
                     }
                     if (message.isNotBlank()) Text(message, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
-
                 if (players.isNotEmpty()) {
                     Text("Saved players", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.fillMaxWidth())
                     players.forEach { p ->
@@ -137,38 +134,17 @@ private fun ProfilePanel(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun ProfileTextField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-            focusedLabelColor = Color.White.copy(alpha = 0.85f),
-            unfocusedLabelColor = Color.White.copy(alpha = 0.60f),
-            cursorColor = Color.White,
-            focusedBorderColor = Color.White.copy(alpha = 0.85f),
-            unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
-            focusedContainerColor = Color.Black.copy(alpha = 0.28f),
-            unfocusedContainerColor = Color.Black.copy(alpha = 0.22f)
-        ),
-        modifier = modifier.fillMaxWidth()
-    )
+    OutlinedTextField(value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = Color.White.copy(alpha = 0.85f), unfocusedLabelColor = Color.White.copy(alpha = 0.60f), cursorColor = Color.White, focusedBorderColor = Color.White.copy(alpha = 0.85f), unfocusedBorderColor = Color.White.copy(alpha = 0.38f), focusedContainerColor = Color.Black.copy(alpha = 0.28f), unfocusedContainerColor = Color.Black.copy(alpha = 0.22f)), modifier = modifier.fillMaxWidth())
 }
 
 @Composable
 private fun SmallChoice(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
-    Box(modifier.height(42.dp).clip(shape).background(if (selected) Color(0xFFC62828) else Color.Black.copy(alpha = 0.40f)).border(1.dp, Color.White.copy(alpha = if (selected) 0.85f else 0.35f), shape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(text, color = Color.White, fontWeight = FontWeight.Black)
-    }
+    Box(modifier.height(42.dp).clip(shape).background(if (selected) Color(0xFFC62828) else Color.Black.copy(alpha = 0.40f)).border(1.dp, Color.White.copy(alpha = if (selected) 0.85f else 0.35f), shape).clickable(onClick = onClick), contentAlignment = Alignment.Center) { Text(text, color = Color.White, fontWeight = FontWeight.Black) }
 }
 
 @Composable
 private fun MainActionButton(text: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(18.dp)
-    Box(Modifier.fillMaxWidth().height(52.dp).clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF4A0808), Color(0xFFC62828), Color(0xFF4A0808)))).border(1.dp, Color(0xFFFF6A5E), shape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(text.uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
-    }
+    Box(Modifier.fillMaxWidth().height(52.dp).clip(shape).background(Brush.horizontalGradient(listOf(Color(0xFF4A0808), Color(0xFFC62828), Color(0xFF4A0808)))).border(1.dp, Color(0xFFFF6A5E), shape).clickable(onClick = onClick), contentAlignment = Alignment.Center) { Text(text.uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black) }
 }
