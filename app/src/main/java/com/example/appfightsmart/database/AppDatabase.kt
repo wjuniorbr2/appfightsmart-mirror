@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [Player::class, GameSession::class, PlayerGameSession::class],
-    version = 2, // Incremented version
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,7 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "fight_smart_database"
                 )
-                    .fallbackToDestructiveMigration() // Add this line
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance
