@@ -97,9 +97,7 @@ fun HomeScreen(
         showConnectionMessage = true
     }
 
-    LaunchedEffect(Unit) {
-        bluetoothManager.setOnConnectionStateChange(onConnectionStateChange)
-    }
+    LaunchedEffect(Unit) { bluetoothManager.setOnConnectionStateChange(onConnectionStateChange) }
 
     val deviceAddress = "FD:46:E3:35:67:2D"
 
@@ -127,11 +125,9 @@ fun HomeScreen(
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.ACCESS_FINE_LOCATION
         )
-
         val permissionsToRequest = bluetoothPermissions.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-
         if (permissionsToRequest.isNotEmpty()) {
             Log.d("MainActivity", "Requesting permissions")
             requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
@@ -167,10 +163,7 @@ fun HomeScreen(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color.Transparent
-    ) {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
         Image(
             painter = painterResource(id = R.drawable.frame_fight),
             contentDescription = stringResource(R.string.frame_image),
@@ -178,38 +171,24 @@ fun HomeScreen(
             contentScale = ContentScale.FillBounds
         )
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp),
+            modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp, end = 5.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp, end = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
-                SensorSignalAndBattery(
-                    connected = sensorConnected,
-                    rssi = signalRssi,
-                    batteryPercent = batteryPercent
-                )
+                SensorSignalAndBattery(connected = sensorConnected, rssi = signalRssi, batteryPercent = batteryPercent)
                 Canvas(modifier = Modifier.padding(start = 8.dp).size(10.dp)) {
-                    drawCircle(
-                        color = if (sensorConnected) Color.Green else Color.Red,
-                        radius = size.minDimension / 2
-                    )
+                    drawCircle(color = if (sensorConnected) Color.Green else Color.Red, radius = size.minDimension / 2)
                 }
                 Box {
                     Text(
                         text = stringResource(R.string.sensor_connection),
                         fontSize = 10.sp,
-                        style = TextStyle(
-                            drawStyle = Stroke(width = 2f),
-                            color = Color.Black
-                        ),
+                        style = TextStyle(drawStyle = Stroke(width = 2f), color = Color.Black),
                         modifier = Modifier.padding(start = 4.dp)
                     )
                     Text(
@@ -223,65 +202,41 @@ fun HomeScreen(
             Image(
                 painter = painterResource(id = R.drawable.logo_fight),
                 contentDescription = stringResource(R.string.fightsmart_logo),
-                modifier = Modifier
-                    .padding(bottom = 24.dp)
-                    .size(300.dp)
+                modifier = Modifier.padding(bottom = 8.dp).size(235.dp)
             )
-            ButtonWithDivider(
-                onClick = { navController.navigate(Screen.Calibration.route) },
-                text = "Calibration"
-            )
-            ButtonWithDivider(
-                onClick = { navController.navigate(Screen.GameSetup.route) },
-                text = stringResource(R.string.quick_game)
-            )
-            ButtonWithDivider(
-                onClick = { navController.navigate(Screen.Training.route) },
-                text = stringResource(R.string.training)
-            )
-            ButtonWithDivider(
-                onClick = { navController.navigate(Screen.Leaderboard.route) },
-                text = stringResource(R.string.leaderboard)
-            )
-            ButtonWithDivider(
-                onClick = {
-                    if (sensorConnected) {
-                        showTemporaryMessage(sensorAlreadyConnected)
-                    } else if (bluetoothManager.isBluetoothEnabled()) {
-                        connectionMessage = tryingToConnect
-                        showConnectionMessage = true
-                        isConnecting = true
-                        checkAndRequestPermissions()
-                    } else {
-                        showTemporaryMessage(bluetoothDisabled)
-                    }
-                },
-                text = stringResource(R.string.connect_sensor)
-            )
-            ButtonWithDivider(
-                onClick = { navController.navigate(Screen.Settings.route) },
-                text = stringResource(R.string.settings)
-            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Calibration.route) }, text = "Calibration", compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.GameSetup.route) }, text = stringResource(R.string.quick_game), compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Training.route) }, text = stringResource(R.string.training), compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.PlayerProfiles.route) }, text = "Add players", compact = true)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Leaderboard.route) }, text = stringResource(R.string.leaderboard), compact = true)
+                    ButtonWithDivider(
+                        onClick = {
+                            if (sensorConnected) {
+                                showTemporaryMessage(sensorAlreadyConnected)
+                            } else if (bluetoothManager.isBluetoothEnabled()) {
+                                connectionMessage = tryingToConnect
+                                showConnectionMessage = true
+                                isConnecting = true
+                                checkAndRequestPermissions()
+                            } else {
+                                showTemporaryMessage(bluetoothDisabled)
+                            }
+                        },
+                        text = stringResource(R.string.connect_sensor),
+                        compact = true
+                    )
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Settings.route) }, text = stringResource(R.string.settings), compact = true)
+                }
+            }
         }
         if (showConnectionMessage) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 292.dp),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                Surface(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Black.copy(alpha = 0.7f)
-                ) {
-                    Text(
-                        text = connectionMessage,
-                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp),
-                        fontSize = 22.sp,
-                        color = Color.White,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
+            Box(modifier = Modifier.fillMaxSize().padding(top = 292.dp), contentAlignment = Alignment.TopCenter) {
+                Surface(modifier = Modifier.padding(horizontal = 16.dp), shape = RoundedCornerShape(16.dp), color = Color.Black.copy(alpha = 0.7f)) {
+                    Text(text = connectionMessage, modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp), fontSize = 22.sp, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
         }
@@ -289,24 +244,12 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SensorSignalAndBattery(
-    connected: Boolean,
-    rssi: Int?,
-    batteryPercent: Int?
-) {
+private fun SensorSignalAndBattery(connected: Boolean, rssi: Int?, batteryPercent: Int?) {
     val visibleColor = if (connected) Color.White else Color.White.copy(alpha = 0.35f)
     val battery = batteryPercent?.coerceIn(0, 100)
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         SignalBars(rssi = rssi, color = visibleColor)
-        Text(
-            text = if (battery != null) "$battery%" else "--%",
-            fontSize = 10.sp,
-            color = visibleColor
-        )
+        Text(text = if (battery != null) "$battery%" else "--%", fontSize = 10.sp, color = visibleColor)
         BatteryBar(percent = battery, color = visibleColor)
     }
 }
@@ -320,7 +263,6 @@ private fun SignalBars(rssi: Int?, color: Color) {
         rssi >= -80 -> 2
         else -> 1
     }
-
     Canvas(modifier = Modifier.size(width = 18.dp, height = 14.dp)) {
         val barWidth = size.width / 7f
         val gap = barWidth * 0.65f
@@ -343,30 +285,10 @@ private fun SignalBars(rssi: Int?, color: Color) {
 private fun BatteryBar(percent: Int?, color: Color) {
     val fill = (percent ?: 0) / 100f
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .width(24.dp)
-                .height(10.dp)
-                .border(1.dp, color.copy(alpha = 0.85f), RoundedCornerShape(2.dp))
-                .padding(2.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Transparent)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fill)
-                    .height(6.dp)
-                    .background(color.copy(alpha = if (percent == null) 0.15f else 0.95f), RoundedCornerShape(1.dp))
-            )
+        Box(modifier = Modifier.width(24.dp).height(10.dp).border(1.dp, color.copy(alpha = 0.85f), RoundedCornerShape(2.dp)).padding(2.dp)) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Transparent))
+            Box(modifier = Modifier.fillMaxWidth(fill).height(6.dp).background(color.copy(alpha = if (percent == null) 0.15f else 0.95f), RoundedCornerShape(1.dp)))
         }
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(5.dp)
-                .background(color.copy(alpha = 0.85f), RoundedCornerShape(1.dp))
-        )
+        Box(modifier = Modifier.width(3.dp).height(5.dp).background(color.copy(alpha = 0.85f), RoundedCornerShape(1.dp)))
     }
 }
