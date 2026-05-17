@@ -13,6 +13,18 @@ class GameSetupViewModel(private val repository: GameSessionRepository) : ViewMo
         return repository.insertPlayerIfNotExists(playerName)
     }
 
+    suspend fun savePlayerProfile(playerName: String, heightCm: Int?, naturalPunchHeightCm: Int?, dominantHand: String?): Long {
+        return repository.savePlayerProfile(playerName, heightCm, naturalPunchHeightCm, dominantHand)
+    }
+
+    suspend fun getPlayerByName(playerName: String): Player? {
+        return repository.getPlayerByName(playerName)
+    }
+
+    suspend fun getPlayersByNames(playerNames: List<String>): List<Player?> {
+        return repository.getPlayersByNames(playerNames)
+    }
+
     fun insertGameSession(playerIds: List<Long>, gameMode: String, selectedMoveType: String) = viewModelScope.launch {
         repository.insertGameSession(playerIds, gameMode, selectedMoveType)
     }
