@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -83,6 +84,14 @@ fun GameScreen(
     var directionChangeCount by remember { mutableIntStateOf(0) }
     var lastSwingDirection by remember { mutableIntStateOf(0) }
     var hitCaptured by remember { mutableStateOf(false) }
+    var impactActive by remember { mutableStateOf(false) }
+    var impactStartMs by remember { mutableLongStateOf(0L) }
+    var impactSamples by remember { mutableIntStateOf(0) }
+    var impactSumG by remember { mutableFloatStateOf(0f) }
+    var impactPeakG by remember { mutableFloatStateOf(0f) }
+    var impactTop1G by remember { mutableFloatStateOf(0f) }
+    var impactTop2G by remember { mutableFloatStateOf(0f) }
+    var impactTop3G by remember { mutableFloatStateOf(0f) }
     var currentForceG by remember { mutableFloatStateOf(0f) }
     var capturedPeakG by remember { mutableFloatStateOf(0f) }
     var capturedScore by remember { mutableFloatStateOf(0f) }
@@ -103,8 +112,9 @@ fun GameScreen(
     var previousAngleMagnitude by remember { mutableFloatStateOf(0f) }
 
     val alpha = 0.96f
-    val hitThresholdG = 0.75f
-    val hitDeltaThresholdG = 0.16f
+    val impactWindowMs = 280L
+    val hitThresholdG = 0.70f
+    val hitDeltaThresholdG = 0.14f
     val swingStartThresholdG = 0.055f
     val stillThresholdG = 0.040f
     val angleSwingThresholdDeg = 1.1f
@@ -123,14 +133,14 @@ fun GameScreen(
     fun calibratedPowerScore(dynamicG: Float, move: String, heightCm: Int): Float {
         val h = heightCm.coerceIn(80, 140)
         val heightFactor = when {
-            h <= 90 -> 1.07f
-            h <= 110 -> 1.02f
+            h <= 90 -> 0.98f
+            h <= 110 -> 1.00f
             h <= 130 -> 1.00f
-            else -> 1.08f
+            else -> 1.02f
         }
         val moveFactor = when {
-            move.contains("hook", ignoreCase = true) || move.contains("cruz", ignoreCase = true) -> 0.92f
-            move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> 0.97f
+            move.contains("hook", ignoreCase = true) || move.contains("cruz", ignoreCase = true) -> 0.94f
+            move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> 0.98f
             else -> 1.00f
         }
         val normalizedG = dynamicG * heightFactor * moveFactor
@@ -138,12 +148,64 @@ fun GameScreen(
         val medium = 3.20f
         val strong = 6.50f
         val rawScore = when {
-            normalizedG <= light -> 25f + (normalizedG / light) * 180f
+            normalizedG <= 0.12f -> 0f
+            normalizedG <= light -> 20f + (normalizedG / light) * 185f
             normalizedG <= medium -> 205f + ((normalizedG - light) / (medium - light)) * 270f
             normalizedG <= strong -> 475f + ((normalizedG - medium) / (strong - medium)) * 350f
             else -> 825f + ((normalizedG - strong) / 4.0f) * 174f
         }
-        return rawScore.coerceIn(1f, 999f)
+        return rawScore.coerceIn(0f, 999f)
+    }
+
+    fun resetImpactWindow() {
+        impactActive = false
+        impactStartMs = 0L
+        impactSamples = 0
+        impactSumG = 0f
+        impactPeakG = 0f
+        impactTop1G = 0f
+        impactTop2G = 0f
+        impactTop3G = 0f
+    }
+
+    fun addImpactSample(g: Float) {
+        impactSamples++
+        impactSumG += g
+        if (g > impactPeakG) impactPeakG = g
+        when {
+            g >= impactTop1G -> {
+                impactTop3G = impactTop2G
+                impactTop2G = impactTop1G
+                impactTop1G = g
+            }
+            g >= impactTop2G -> {
+                impactTop3G = impactTop2G
+                impactTop2G = g
+            }
+            g > impactTop3G -> impactTop3G = g
+        }
+    }
+
+    fun finishImpactWindow() {
+        if (impactSamples <= 0) {
+            resetImpactWindow()
+            return
+        }
+        val topCount = impactSamples.coerceAtMost(3)
+        val topAverage = (impactTop1G + if (topCount >= 2) impactTop2G else 0f + if (topCount >= 3) impactTop3G else 0f) / topCount
+        val averageG = impactSumG / impactSamples
+        val stableImpactG = (topAverage * 0.55f) + (impactPeakG * 0.30f) + (averageG * 0.15f)
+        val currentHeight = heightList.getOrElse(currentPlayer) { 120 }
+        capturedPeakG = impactPeakG
+        capturedScore = calibratedPowerScore(stableImpactG, selectedMoveType, currentHeight)
+        if (capturedScore > bestHit) bestHit = capturedScore
+        hitCaptured = true
+        isBagSwinging = false
+        movingSampleCount = 0
+        stillSampleCount = 0
+        directionChangeCount = 0
+        lastSwingDirection = 0
+        resetImpactWindow()
     }
 
     fun toShortLE(lo: Byte, hi: Byte): Short {
@@ -179,7 +241,7 @@ fun GameScreen(
     }
 
     fun updateSwingState(motion: Float, stillThreshold: Float, swingThreshold: Float, direction: Int) {
-        if (hitCaptured) return
+        if (hitCaptured || impactActive) return
         if (motion > swingThreshold) {
             movingSampleCount++
             stillSampleCount = 0
@@ -214,11 +276,11 @@ fun GameScreen(
         previousAngleMagnitude = angleMagnitude
         overlayBagSwing = (0.82f * overlayBagSwing + 0.18f * (-rollDelta * 5.2f)).coerceIn(-58f, 58f)
         overlayBagDepth = (0.78f * overlayBagDepth + 0.22f * (pitchDelta / 28f)).coerceIn(-0.42f, 0.42f)
-        val angleMotion = maxOf(angleMagnitude, angleDelta * 4f)
-        updateSwingState(angleMotion, angleStillThresholdDeg, angleSwingThresholdDeg, directionOf(rollDelta, 0.25f))
+        updateSwingState(maxOf(angleMagnitude, angleDelta * 4f), angleStillThresholdDeg, angleSwingThresholdDeg, directionOf(rollDelta, 0.25f))
     }
 
     fun processForceSample(axG: Float, ayG: Float, azG: Float) {
+        val now = System.currentTimeMillis()
         val (lx, ly, lz) = applyGravityFilter(axG, ayG, azG)
         val totalG = sqrt(lx * lx + ly * ly + lz * lz)
         val deltaG = abs(totalG - previousMotionG)
@@ -226,14 +288,20 @@ fun GameScreen(
         currentForceG = totalG
         overlayBagSwing = (0.70f * overlayBagSwing + 0.30f * (lx * 80f)).coerceIn(-58f, 58f)
         overlayBagDepth = (0.70f * overlayBagDepth + 0.30f * (lz * 0.45f)).coerceIn(-0.42f, 0.42f)
+
+        if (impactActive) {
+            addImpactSample(totalG)
+            if (now - impactStartMs >= impactWindowMs) finishImpactWindow()
+            return
+        }
+
         val looksLikePunch = totalG > hitThresholdG && deltaG > hitDeltaThresholdG
         val canRecordStrike = !isPreparing && !isBagSwinging && !hitCaptured
         if (canRecordStrike && looksLikePunch) {
-            val currentHeight = heightList.getOrElse(currentPlayer) { 120 }
-            capturedPeakG = totalG
-            capturedScore = calibratedPowerScore(totalG, selectedMoveType, currentHeight)
-            if (capturedScore > bestHit) bestHit = capturedScore
-            hitCaptured = true
+            resetImpactWindow()
+            impactActive = true
+            impactStartMs = now
+            addImpactSample(totalG)
             isBagSwinging = false
             movingSampleCount = 0
             stillSampleCount = 0
@@ -272,6 +340,7 @@ fun GameScreen(
         isPreparing = true
         isBagSwinging = false
         hitCaptured = false
+        resetImpactWindow()
         currentForceG = 0f
         capturedPeakG = 0f
         capturedScore = 0f
@@ -290,8 +359,8 @@ fun GameScreen(
     val liveScore = if (hitCaptured) capturedScore else calibratedPowerScore(currentForceG, selectedMoveType, heightList.getOrElse(currentPlayer) { 120 })
     val forceFill = (liveScore / 999f).coerceIn(0f, 1f)
     val isLastTurn = currentPlayer == safePlayerList.lastIndex && currentMove == numberOfMoves - 1
-    val showStopBagOverlay = !gameFinished && !hitCaptured && !isPreparing && isBagSwinging
-    val readyToPunch = !gameFinished && !hitCaptured && !isPreparing && !isBagSwinging
+    val showStopBagOverlay = !gameFinished && !hitCaptured && !impactActive && !isPreparing && isBagSwinging
+    val readyToPunch = !gameFinished && !hitCaptured && !impactActive && !isPreparing && !isBagSwinging
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
         Box(Modifier.fillMaxSize()) {
@@ -304,7 +373,7 @@ fun GameScreen(
                     SensorStatusRow(connected = sensorConnected, rssi = signalRssi, batteryPercent = batteryPercent, modifier = Modifier.padding(bottom = 6.dp, end = 4.dp))
                     Text(stringResource(R.string.quick_game), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 6.dp))
                     TopGameHud(playerName = playerName, currentMove = currentMove + 1, totalMoves = numberOfMoves, moveName = moveName)
-                    StatusStrip(text = when { hitCaptured -> stringResource(R.string.hit_detected); isBagSwinging -> stringResource(R.string.stop_the_bag); isPreparing -> stringResource(R.string.recovering); else -> stringResource(R.string.ready) }, active = hitCaptured, ready = readyToPunch)
+                    StatusStrip(text = when { hitCaptured -> stringResource(R.string.hit_detected); impactActive -> "MEASURING"; isBagSwinging -> stringResource(R.string.stop_the_bag); isPreparing -> stringResource(R.string.recovering); else -> stringResource(R.string.ready) }, active = hitCaptured, ready = readyToPunch)
                     Row(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
                             PowerReadout(score = liveScore, bestHit = bestHit, peakG = capturedPeakG, lastHit = capturedScore)
