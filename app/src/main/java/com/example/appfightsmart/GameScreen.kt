@@ -108,12 +108,22 @@ fun GameScreen(
     }
 
     fun calibratedPowerScore(dynamicG: Float, move: String, heightCm: Int): Float {
+        // Physical correction: lower hits on this bag/sensor setup produce a larger sensor response.
+        // So lower natural punch heights are scaled down, 120 cm is neutral, and high hits get a small boost.
+        val h = heightCm.coerceIn(80, 140)
+        val heightFactor = when {
+            h <= 90 -> 0.55f
+            h <= 100 -> 0.68f
+            h <= 110 -> 0.84f
+            h <= 130 -> 1.00f
+            else -> 1.12f
+        }
         val moveFactor = when {
             move.contains("hook", ignoreCase = true) || move.contains("cruz", ignoreCase = true) -> 0.96f
             move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> 0.99f
             else -> 1.00f
         }
-        val g = dynamicG * moveFactor
+        val g = dynamicG * heightFactor * moveFactor
         val rawScore = when {
             g <= 0.04f -> 0f
             g <= 0.45f -> 8f + (g / 0.45f) * 92f
