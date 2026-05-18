@@ -107,32 +107,69 @@ fun GameScreen(
         }
     }
 
-    fun calibratedPowerScore(dynamicG: Float, move: String, heightCm: Int): Float {
-        // Physical correction: lower hits on this bag/sensor setup produce a larger sensor response.
-        // So lower natural punch heights are scaled down, 120 cm is neutral, and high hits get a small boost.
+    data class AccelAnchors(val light: Float, val medium: Float, val strong: Float)
+
+    fun anchorsFor(move: String, heightCm: Int): AccelAnchors {
+        val m = when {
+            move.contains("hook", ignoreCase = true) || move.contains("gancho", ignoreCase = true) -> "hook"
+            move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> "cross"
+            else -> "jab"
+        }
         val h = heightCm.coerceIn(80, 140)
-        val heightFactor = when {
-            h <= 90 -> 0.55f
-            h <= 100 -> 0.68f
-            h <= 110 -> 0.84f
-            h <= 130 -> 1.00f
-            else -> 1.12f
+        fun table(height: Int): AccelAnchors {
+            val raw = when (m) {
+                "cross" -> when (height) {
+                    80 -> AccelAnchors(1.44f, 4.36f, 6.08f)
+                    100 -> AccelAnchors(2.11f, 4.47f, 5.67f)
+                    120 -> AccelAnchors(1.61f, 2.70f, 6.36f)
+                    else -> AccelAnchors(1.14f, 2.71f, 4.85f)
+                }
+                "hook" -> when (height) {
+                    80 -> AccelAnchors(1.33f, 4.93f, 6.13f)
+                    100 -> AccelAnchors(1.71f, 4.06f, 5.26f)
+                    120 -> AccelAnchors(1.17f, 2.58f, 5.21f)
+                    else -> AccelAnchors(1.00f, 1.62f, 4.13f)
+                }
+                else -> when (height) {
+                    80 -> AccelAnchors(1.58f, 3.20f, 5.42f)
+                    100 -> AccelAnchors(1.34f, 2.92f, 3.98f)
+                    120 -> AccelAnchors(1.10f, 2.26f, 4.19f)
+                    else -> AccelAnchors(0.81f, 1.49f, 3.01f)
+                }
+            }
+            val medium = raw.medium.coerceAtLeast(raw.light + 0.60f)
+            val strong = raw.strong.coerceAtLeast(medium + 1.00f)
+            return AccelAnchors(raw.light, medium, strong)
         }
-        val moveFactor = when {
-            move.contains("hook", ignoreCase = true) || move.contains("cruz", ignoreCase = true) -> 0.96f
-            move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> 0.99f
-            else -> 1.00f
+        fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
+        fun interp(lowH: Int, highH: Int): AccelAnchors {
+            val a = table(lowH)
+            val b = table(highH)
+            val t = ((h - lowH).toFloat() / (highH - lowH).toFloat()).coerceIn(0f, 1f)
+            return AccelAnchors(lerp(a.light, b.light, t), lerp(a.medium, b.medium, t), lerp(a.strong, b.strong, t))
         }
-        val g = dynamicG * heightFactor * moveFactor
-        val rawScore = when {
+        return when {
+            h <= 80 -> table(80)
+            h < 100 -> interp(80, 100)
+            h == 100 -> table(100)
+            h < 120 -> interp(100, 120)
+            h == 120 -> table(120)
+            h < 140 -> interp(120, 140)
+            else -> table(140)
+        }
+    }
+
+    fun calibratedPowerScore(dynamicG: Float, move: String, heightCm: Int): Float {
+        val a = anchorsFor(move, heightCm)
+        val g = dynamicG.coerceAtLeast(0f)
+        val score = when {
             g <= 0.04f -> 0f
-            g <= 0.45f -> 8f + (g / 0.45f) * 92f
-            g <= 1.20f -> 100f + ((g - 0.45f) / 0.75f) * 105f
-            g <= 3.20f -> 205f + ((g - 1.20f) / 2.00f) * 270f
-            g <= 6.50f -> 475f + ((g - 3.20f) / 3.30f) * 350f
-            else -> 825f + ((g - 6.50f) / 4.00f) * 174f
+            g < a.light -> 8f + (g / a.light.coerceAtLeast(0.20f)) * 172f
+            g < a.medium -> 180f + ((g - a.light) / (a.medium - a.light).coerceAtLeast(0.20f)) * 320f
+            g < a.strong -> 500f + ((g - a.medium) / (a.strong - a.medium).coerceAtLeast(0.20f)) * 350f
+            else -> 850f + ((g - a.strong) / (a.strong * 0.70f).coerceAtLeast(1f)) * 149f
         }
-        return rawScore.coerceIn(0f, 999f)
+        return score.coerceIn(0f, 999f)
     }
 
     fun resetImpactWindow() {
