@@ -154,7 +154,7 @@ fun FightSmartApp(isDarkMode: Boolean, repository: GameSessionRepository) {
                         }
                         composable(Screen.Training.route) { TrainingScreen() }
                         composable(Screen.Leaderboard.route) { LeaderboardScreen() }
-                        composable(Screen.Settings.route) { SettingsScreen() }
+                        composable(Screen.Settings.route) { SettingsScreen(navController = navController) }
                     }
                 }
             }
