@@ -97,8 +97,8 @@ fun GameScreen(
 
     val gravityAlpha = 0.96f
     val impactWindowMs = 300L
-    val hitThresholdG = 0.70f
-    val hitDeltaThresholdG = 0.14f
+    val hitThresholdG = 0.34f
+    val hitDeltaThresholdG = 0.055f
 
     LaunchedEffect(bluetoothManager) {
         if (bluetoothManager != null) {
@@ -108,21 +108,16 @@ fun GameScreen(
     }
 
     fun calibratedPowerScore(dynamicG: Float, move: String, heightCm: Int): Float {
-        val h = heightCm.coerceIn(80, 140)
-        val heightFactor = when {
-            h <= 90 -> 0.98f
-            h <= 130 -> 1.00f
-            else -> 1.02f
-        }
         val moveFactor = when {
-            move.contains("hook", ignoreCase = true) || move.contains("cruz", ignoreCase = true) -> 0.94f
-            move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> 0.98f
+            move.contains("hook", ignoreCase = true) || move.contains("cruz", ignoreCase = true) -> 0.96f
+            move.contains("cross", ignoreCase = true) || move.contains("direto", ignoreCase = true) -> 0.99f
             else -> 1.00f
         }
-        val g = dynamicG * heightFactor * moveFactor
+        val g = dynamicG * moveFactor
         val rawScore = when {
-            g <= 0.12f -> 0f
-            g <= 1.20f -> 20f + (g / 1.20f) * 185f
+            g <= 0.04f -> 0f
+            g <= 0.45f -> 8f + (g / 0.45f) * 92f
+            g <= 1.20f -> 100f + ((g - 0.45f) / 0.75f) * 105f
             g <= 3.20f -> 205f + ((g - 1.20f) / 2.00f) * 270f
             g <= 6.50f -> 475f + ((g - 3.20f) / 3.30f) * 350f
             else -> 825f + ((g - 6.50f) / 4.00f) * 174f
