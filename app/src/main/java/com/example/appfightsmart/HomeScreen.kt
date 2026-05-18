@@ -56,7 +56,6 @@ fun HomeScreen(
     onSensorConnectionChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    var connectionError by remember { mutableStateOf<String?>(null) }
     var connectionMessage by remember { mutableStateOf("") }
     var showConnectionMessage by remember { mutableStateOf(false) }
     var isConnecting by remember { mutableStateOf(false) }
@@ -67,7 +66,6 @@ fun HomeScreen(
     val sensorConnectedMessage = stringResource(R.string.sensor_connected)
     val sensorAlreadyConnected = stringResource(R.string.sensor_already_connected)
     val sensorFailed = stringResource(R.string.sensor_failed)
-    val disconnectedFromSensor = stringResource(R.string.disconnected_from_sensor)
     val permissionsDenied = stringResource(R.string.permissions_denied)
     val tryingToConnect = stringResource(R.string.trying_to_connect)
     val bluetoothDisabled = stringResource(R.string.bluetooth_disabled)
@@ -88,7 +86,6 @@ fun HomeScreen(
         onSensorConnectionChanged(connected)
         isConnecting = false
         connectionMessage = if (connected) sensorConnectedMessage else sensorFailed
-        connectionError = if (!connected) disconnectedFromSensor else null
         if (!connected) {
             batteryPercent = null
             signalRssi = null
@@ -100,17 +97,11 @@ fun HomeScreen(
     LaunchedEffect(Unit) { bluetoothManager.setOnConnectionStateChange(onConnectionStateChange) }
 
     val deviceAddress = "FD:46:E3:35:67:2D"
-
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { permissions ->
-            val allGranted = permissions.values.all { it }
-            if (allGranted) {
-                Log.d("MainActivity", "All permissions granted")
-                bluetoothManager.connectToDevice(deviceAddress)
-            } else {
-                Log.e("MainActivity", "Some permissions denied")
-                connectionError = permissionsDenied
+            if (permissions.values.all { it }) bluetoothManager.connectToDevice(deviceAddress)
+            else {
                 connectionMessage = permissionsDenied
                 showResult = true
                 showConnectionMessage = true
@@ -120,21 +111,10 @@ fun HomeScreen(
     )
 
     fun checkAndRequestPermissions() {
-        val bluetoothPermissions = arrayOf(
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
-        val permissionsToRequest = bluetoothPermissions.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (permissionsToRequest.isNotEmpty()) {
-            Log.d("MainActivity", "Requesting permissions")
-            requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
-        } else {
-            Log.d("MainActivity", "Permissions already granted")
-            bluetoothManager.connectToDevice(deviceAddress)
-        }
+        val bluetoothPermissions = arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.ACCESS_FINE_LOCATION)
+        val permissionsToRequest = bluetoothPermissions.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (permissionsToRequest.isNotEmpty()) requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+        else bluetoothManager.connectToDevice(deviceAddress)
     }
 
     fun showTemporaryMessage(message: String) {
@@ -149,13 +129,11 @@ fun HomeScreen(
             if (bluetoothManager.isBluetoothEnabled()) {
                 isConnecting = true
                 checkAndRequestPermissions()
-            } else {
-                showTemporaryMessage(bluetoothDisabled)
-            }
+            } else showTemporaryMessage(bluetoothDisabled)
         }
     }
 
-    LaunchedEffect(key1 = showResult) {
+    LaunchedEffect(showResult) {
         if (showResult) {
             delay(2000.milliseconds)
             showConnectionMessage = false
@@ -164,77 +142,44 @@ fun HomeScreen(
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-        Image(
-            painter = painterResource(id = R.drawable.frame_fight),
-            contentDescription = stringResource(R.string.frame_image),
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds
-        )
-        Column(
-            modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp, end = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
+        Image(painterResource(id = R.drawable.frame_fight), stringResource(R.string.frame_image), Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+        Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Top) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
                 SensorSignalAndBattery(connected = sensorConnected, rssi = signalRssi, batteryPercent = batteryPercent)
-                Canvas(modifier = Modifier.padding(start = 8.dp).size(10.dp)) {
-                    drawCircle(color = if (sensorConnected) Color.Green else Color.Red, radius = size.minDimension / 2)
-                }
+                Canvas(modifier = Modifier.padding(start = 8.dp).size(10.dp)) { drawCircle(color = if (sensorConnected) Color.Green else Color.Red, radius = size.minDimension / 2) }
                 Box {
-                    Text(
-                        text = stringResource(R.string.sensor_connection),
-                        fontSize = 10.sp,
-                        style = TextStyle(drawStyle = Stroke(width = 2f), color = Color.Black),
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.sensor_connection),
-                        fontSize = 10.sp,
-                        color = Color.White,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
+                    Text(text = stringResource(R.string.sensor_connection), fontSize = 10.sp, style = TextStyle(drawStyle = Stroke(width = 2f), color = Color.Black), modifier = Modifier.padding(start = 4.dp))
+                    Text(text = stringResource(R.string.sensor_connection), fontSize = 10.sp, color = Color.White, modifier = Modifier.padding(start = 4.dp))
                 }
             }
-            Image(
-                painter = painterResource(id = R.drawable.logo_fight),
-                contentDescription = stringResource(R.string.fightsmart_logo),
-                modifier = Modifier.padding(bottom = 8.dp).size(235.dp)
-            )
+            Image(painter = painterResource(id = R.drawable.logo_fight), contentDescription = stringResource(R.string.fightsmart_logo), modifier = Modifier.padding(bottom = 8.dp).size(235.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ButtonWithDivider(onClick = { navController.navigate(Screen.Calibration.route) }, text = "Calibration", compact = true)
                     ButtonWithDivider(onClick = { navController.navigate(Screen.GameSetup.route) }, text = stringResource(R.string.quick_game), compact = true)
-                    ButtonWithDivider(onClick = { navController.navigate(Screen.Training.route) }, text = stringResource(R.string.training), compact = true)
-                    ButtonWithDivider(onClick = { navController.navigate(Screen.PlayerProfiles.route) }, text = "Add players", compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Leaderboard.route) }, text = stringResource(R.string.leaderboard), compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Settings.route) }, text = stringResource(R.string.settings), compact = true)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ButtonWithDivider(onClick = { navController.navigate(Screen.Leaderboard.route) }, text = stringResource(R.string.leaderboard), compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.Training.route) }, text = stringResource(R.string.training), compact = true)
                     ButtonWithDivider(
                         onClick = {
-                            if (sensorConnected) {
-                                showTemporaryMessage(sensorAlreadyConnected)
-                            } else if (bluetoothManager.isBluetoothEnabled()) {
+                            if (sensorConnected) showTemporaryMessage(sensorAlreadyConnected)
+                            else if (bluetoothManager.isBluetoothEnabled()) {
                                 connectionMessage = tryingToConnect
                                 showConnectionMessage = true
                                 isConnecting = true
                                 checkAndRequestPermissions()
-                            } else {
-                                showTemporaryMessage(bluetoothDisabled)
-                            }
+                            } else showTemporaryMessage(bluetoothDisabled)
                         },
                         text = stringResource(R.string.connect_sensor),
                         compact = true
                     )
-                    ButtonWithDivider(onClick = { navController.navigate(Screen.Settings.route) }, text = stringResource(R.string.settings), compact = true)
+                    ButtonWithDivider(onClick = { navController.navigate(Screen.PlayerProfiles.route) }, text = "Add players", compact = true)
                 }
             }
         }
         if (showConnectionMessage) {
-            Box(modifier = Modifier.fillMaxSize().padding(top = 292.dp), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.fillMaxSize().padding(top = 292.dp), contentAlignment = Alignment.TopCenter) {
                 Surface(modifier = Modifier.padding(horizontal = 16.dp), shape = RoundedCornerShape(16.dp), color = Color.Black.copy(alpha = 0.7f)) {
                     Text(text = connectionMessage, modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp), fontSize = 22.sp, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
@@ -267,16 +212,10 @@ private fun SignalBars(rssi: Int?, color: Color) {
         val barWidth = size.width / 7f
         val gap = barWidth * 0.65f
         for (i in 0 until 4) {
-            val heightRatio = (i + 1) / 4f
-            val barHeight = size.height * heightRatio
+            val barHeight = size.height * ((i + 1) / 4f)
             val left = i * (barWidth + gap)
             val top = size.height - barHeight
-            drawRoundRect(
-                color = if (i < activeBars) color else color.copy(alpha = 0.20f),
-                topLeft = Offset(left, top),
-                size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2)
-            )
+            drawRoundRect(color = if (i < activeBars) color else color.copy(alpha = 0.20f), topLeft = Offset(left, top), size = androidx.compose.ui.geometry.Size(barWidth, barHeight), cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2))
         }
     }
 }
@@ -285,10 +224,9 @@ private fun SignalBars(rssi: Int?, color: Color) {
 private fun BatteryBar(percent: Int?, color: Color) {
     val fill = (percent ?: 0) / 100f
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.width(24.dp).height(10.dp).border(1.dp, color.copy(alpha = 0.85f), RoundedCornerShape(2.dp)).padding(2.dp)) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Transparent))
-            Box(modifier = Modifier.fillMaxWidth(fill).height(6.dp).background(color.copy(alpha = if (percent == null) 0.15f else 0.95f), RoundedCornerShape(1.dp)))
+        Box(Modifier.width(24.dp).height(10.dp).border(1.dp, color.copy(alpha = 0.85f), RoundedCornerShape(2.dp)).padding(2.dp)) {
+            Box(Modifier.fillMaxWidth(fill).height(6.dp).background(color.copy(alpha = if (percent == null) 0.15f else 0.95f), RoundedCornerShape(1.dp)))
         }
-        Box(modifier = Modifier.width(3.dp).height(5.dp).background(color.copy(alpha = 0.85f), RoundedCornerShape(1.dp)))
+        Box(Modifier.width(3.dp).height(5.dp).background(color.copy(alpha = 0.85f), RoundedCornerShape(1.dp)))
     }
 }
