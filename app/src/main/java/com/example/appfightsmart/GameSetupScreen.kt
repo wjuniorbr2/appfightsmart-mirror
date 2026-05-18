@@ -1,6 +1,7 @@
 package com.example.appfightsmart
 
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -81,7 +82,7 @@ fun GameSetupScreen(
 ) {
     GameSetupMemory.ensureSize()
     var numberOfPlayers by remember { mutableIntStateOf(GameSetupMemory.numberOfPlayers.coerceIn(1, 6)) }
-    val playerNames = remember { mutableStateListOf<String>().also { list -> list.addAll(GameSetupMemory.playerNames.take(6)) } }
+    val playerNames = remember { mutableStateListOf<String>().also { it.addAll(GameSetupMemory.playerNames.take(6)) } }
     var selectedGameMode by remember { mutableIntStateOf(GameSetupMemory.numberOfMoves.coerceIn(1, 20)) }
     var selectedCategory by remember { mutableStateOf(MoveCategory.Punch) }
     var selectedMoveType by remember { mutableStateOf(GameSetupMemory.selectedMoveType) }
@@ -106,6 +107,13 @@ fun GameSetupScreen(
     var profilePunchHeight by remember { mutableStateOf("") }
     var profileHand by remember { mutableStateOf("Right") }
 
+    fun hideSuggestionsAndKeyboard() {
+        focusedPlayerIndex = null
+        searchResults.clear()
+        keyboardController?.hide()
+        focusManager.clearFocus()
+    }
+
     fun saveSetupMemory() {
         GameSetupMemory.numberOfPlayers = numberOfPlayers.coerceIn(1, 6)
         GameSetupMemory.numberOfMoves = selectedGameMode.coerceIn(1, 20)
@@ -115,7 +123,10 @@ fun GameSetupScreen(
         GameSetupMemory.playerNames = playerNames.take(6).toMutableList()
     }
 
+    BackHandler(enabled = focusedPlayerIndex != null) { hideSuggestionsAndKeyboard() }
     LaunchedEffect(numberOfPlayers, selectedGameMode, selectedMoveType, playerNames.toList()) { saveSetupMemory() }
+    LaunchedEffect(scrollState.isScrollInProgress) { if (scrollState.isScrollInProgress) hideSuggestionsAndKeyboard() }
+    LaunchedEffect(showErrorMessage) { if (showErrorMessage) { delay(4000); showErrorMessage = false; errorMessage = null } }
 
     fun getPlayerName(index: Int): String = playerNames.getOrElse(index) { "" }
     fun setPlayerName(index: Int, value: String) {
@@ -123,37 +134,15 @@ fun GameSetupScreen(
         playerNames[index] = value
         saveSetupMemory()
     }
-
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        if (scrollState.isScrollInProgress) {
-            keyboardController?.hide()
-            focusManager.clearFocus()
-        }
-    }
-    LaunchedEffect(showErrorMessage) {
-        if (showErrorMessage) {
-            delay(4000)
-            showErrorMessage = false
-            errorMessage = null
-        }
-    }
-
     fun setPlayerCount(newCount: Int) {
         val count = newCount.coerceIn(1, 6)
         numberOfPlayers = count
-        while (playerNames.size < count) playerNames.add("")
         while (playerNames.size < 6) playerNames.add("")
-        if ((focusedPlayerIndex ?: -1) >= count) {
-            focusedPlayerIndex = null
-            focusManager.clearFocus()
-            keyboardController?.hide()
-        }
+        if ((focusedPlayerIndex ?: -1) >= count) hideSuggestionsAndKeyboard()
         saveSetupMemory()
     }
     fun hasDuplicateNames(names: List<String>) = names.distinct().size != names.size
-    fun loadPlayerSuggestions(index: Int, query: String) {
-        coroutineScope.launch { searchResults[index] = viewModel.searchPlayersNow(query) }
-    }
+    fun loadPlayerSuggestions(index: Int, query: String) { coroutineScope.launch { searchResults[index] = viewModel.searchPlayersNow(query) } }
 
     fun startMissingProfileFlow(names: List<String>) {
         missingProfiles = names
@@ -192,8 +181,8 @@ fun GameSetupScreen(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 5.dp).verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            SensorStatusRow(connected = sensorConnected, rssi = signalRssi, batteryPercent = batteryPercent, modifier = Modifier.padding(bottom = 4.dp, end = 4.dp))
-            Text(stringResource(R.string.prepare_match).uppercase(), color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.padding(top = 0.dp, bottom = 5.dp))
+            SensorStatusRow(connected = sensorConnected, rssi = signalRssi, batteryPercent = batteryPercent, modifier = Modifier.padding(bottom = 3.dp, end = 4.dp))
+            Text(stringResource(R.string.prepare_match).uppercase(), color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.padding(bottom = 4.dp))
 
             SetupMetalPanel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(if (numberOfPlayers == 1) 8.dp else 12.dp)) {
@@ -202,11 +191,7 @@ fun GameSetupScreen(
                         Column(Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = getPlayerName(i),
-                                onValueChange = {
-                                    setPlayerName(i, it)
-                                    focusedPlayerIndex = i
-                                    loadPlayerSuggestions(i, it)
-                                },
+                                onValueChange = { setPlayerName(i, it); focusedPlayerIndex = i; loadPlayerSuggestions(i, it) },
                                 label = { Text(stringResource(R.string.player_number_short, i + 1)) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -220,48 +205,30 @@ fun GameSetupScreen(
                                     focusedContainerColor = Color.Black.copy(alpha = 0.28f),
                                     unfocusedContainerColor = Color.Black.copy(alpha = 0.22f)
                                 ),
-                                modifier = Modifier.fillMaxWidth().height(58.dp).onFocusChanged { state ->
-                                    if (state.isFocused) {
-                                        focusedPlayerIndex = i
-                                        keyboardController?.show()
-                                        loadPlayerSuggestions(i, getPlayerName(i))
-                                    }
+                                modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+                                    if (state.isFocused) { focusedPlayerIndex = i; keyboardController?.show(); loadPlayerSuggestions(i, getPlayerName(i)) }
                                 }
                             )
                             val currentSearchResults = searchResults[i] ?: emptyList()
                             if (focusedPlayerIndex == i && currentSearchResults.isNotEmpty()) {
                                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 196.dp).background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(8.dp))) {
                                     items(currentSearchResults) { player ->
-                                        Text(player.playerName, color = Color.White, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().height(46.dp).clickable {
-                                            setPlayerName(i, player.playerName)
-                                            searchResults[i] = emptyList()
-                                            focusedPlayerIndex = null
-                                            focusManager.clearFocus()
-                                            keyboardController?.hide()
-                                        }.padding(horizontal = 12.dp, vertical = 12.dp))
+                                        Text(player.playerName, color = Color.White, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().height(46.dp).clickable { setPlayerName(i, player.playerName); hideSuggestionsAndKeyboard() }.padding(horizontal = 12.dp, vertical = 12.dp))
                                     }
                                 }
                             }
                         }
                     }
 
-                    CounterSection(stringResource(R.string.number_of_players_plain), numberOfPlayers, "1 - 6", { setPlayerCount(numberOfPlayers - 1) }, { setPlayerCount(numberOfPlayers + 1) })
-                    Slider(value = numberOfPlayers.toFloat(), onValueChange = { setPlayerCount(it.roundToInt()) }, valueRange = 1f..6f, steps = 4)
-                    CounterSection(stringResource(R.string.number_of_moves_plain), selectedGameMode, "1 - 20", { selectedGameMode = (selectedGameMode - 1).coerceIn(1, 20); saveSetupMemory() }, { selectedGameMode = (selectedGameMode + 1).coerceIn(1, 20); saveSetupMemory() })
-                    Slider(value = selectedGameMode.toFloat(), onValueChange = { selectedGameMode = it.roundToInt().coerceIn(1, 20); saveSetupMemory() }, valueRange = 1f..20f, steps = 18)
+                    CounterSection("${stringResource(R.string.number_of_players_plain)} (1 - 6)", numberOfPlayers, { setPlayerCount(numberOfPlayers - 1) }, { setPlayerCount(numberOfPlayers + 1) })
+                    Slider(value = numberOfPlayers.toFloat(), onValueChange = { setPlayerCount(it.roundToInt()) }, valueRange = 1f..6f, steps = 4, modifier = Modifier.padding(top = 0.dp))
+                    CounterSection("${stringResource(R.string.number_of_moves_plain)} (1 - 20)", selectedGameMode, { selectedGameMode = (selectedGameMode - 1).coerceIn(1, 20); saveSetupMemory() }, { selectedGameMode = (selectedGameMode + 1).coerceIn(1, 20); saveSetupMemory() })
+                    Slider(value = selectedGameMode.toFloat(), onValueChange = { selectedGameMode = it.roundToInt().coerceIn(1, 20); saveSetupMemory() }, valueRange = 1f..20f, steps = 18, modifier = Modifier.padding(top = 0.dp))
 
                     SectionTitle(stringResource(R.string.move_types))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MoveCategoryCard(stringResource(R.string.punch), selectedCategory == MoveCategory.Punch, Modifier.weight(1f)) {
-                            selectedCategory = MoveCategory.Punch
-                            selectedMoveType = punchOptions.first().label
-                            saveSetupMemory()
-                        }
-                        MoveCategoryCard(stringResource(R.string.kick), selectedCategory == MoveCategory.Kick, Modifier.weight(1f)) {
-                            selectedCategory = MoveCategory.Kick
-                            selectedMoveType = kickOptions.first().label
-                            saveSetupMemory()
-                        }
+                        MoveCategoryCard(stringResource(R.string.punch), selectedCategory == MoveCategory.Punch, Modifier.weight(1f)) { selectedCategory = MoveCategory.Punch; selectedMoveType = punchOptions.first().label; saveSetupMemory() }
+                        MoveCategoryCard(stringResource(R.string.kick), selectedCategory == MoveCategory.Kick, Modifier.weight(1f)) { selectedCategory = MoveCategory.Kick; selectedMoveType = kickOptions.first().label; saveSetupMemory() }
                     }
                     val visibleOptions = if (selectedCategory == MoveCategory.Punch) punchOptions else kickOptions
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -278,14 +245,10 @@ fun GameSetupScreen(
             val activePlayerNames = (0 until numberOfPlayers).map { getPlayerName(it).trim() }
             val isFormValid = activePlayerNames.none { it.isBlank() } && selectedMoveType.isNotBlank()
             val context = LocalContext.current
-            SetupSummaryCard(numberOfPlayers, selectedGameMode, selectedMoveType, Modifier.fillMaxWidth().padding(top = 8.dp))
-            StartGameButton(enabled = isFormValid, modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp)) {
-                if (hasDuplicateNames(activePlayerNames)) {
-                    errorMessage = context.getString(R.string.error_duplicate_names)
-                    showErrorMessage = true
-                } else {
-                    continueOrStartGame(activePlayerNames)
-                }
+            SetupSummaryCard(numberOfPlayers, selectedGameMode, selectedMoveType, Modifier.fillMaxWidth().padding(top = 7.dp))
+            StartGameButton(enabled = isFormValid, modifier = Modifier.fillMaxWidth().padding(top = 7.dp, bottom = 8.dp)) {
+                if (hasDuplicateNames(activePlayerNames)) { errorMessage = context.getString(R.string.error_duplicate_names); showErrorMessage = true }
+                else continueOrStartGame(activePlayerNames)
             }
         }
 
@@ -310,34 +273,16 @@ fun GameSetupScreen(
                         }
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = {
-                        coroutineScope.launch {
-                            viewModel.savePlayerProfile(profileName, profileHeight.toIntOrNull(), profilePunchHeight.toIntOrNull(), profileHand)
-                            if (profileIndex >= missingProfiles.lastIndex) {
-                                val allNames = (0 until numberOfPlayers).map { getPlayerName(it).trim() }
-                                missingProfiles = emptyList()
-                                continueOrStartGame(allNames)
-                            } else {
-                                profileIndex++
-                                profileName = missingProfiles[profileIndex]
-                                profileHeight = ""
-                                profilePunchHeight = "120"
-                                profileHand = "Right"
-                            }
-                        }
-                    }) { Text("Save") }
-                },
+                confirmButton = { TextButton(onClick = { coroutineScope.launch { viewModel.savePlayerProfile(profileName, profileHeight.toIntOrNull(), profilePunchHeight.toIntOrNull(), profileHand); if (profileIndex >= missingProfiles.lastIndex) { val allNames = (0 until numberOfPlayers).map { getPlayerName(it).trim() }; missingProfiles = emptyList(); continueOrStartGame(allNames) } else { profileIndex++; profileName = missingProfiles[profileIndex]; profileHeight = ""; profilePunchHeight = "120"; profileHand = "Right" } } }) { Text("Save") } },
                 dismissButton = { TextButton(onClick = { missingProfiles = emptyList() }) { Text("Cancel") } }
             )
         }
     }
 }
 
-@Composable
-private fun FightSmartSetupBackground() { Box(Modifier.fillMaxSize()) { Image(painterResource(R.drawable.frame_fight), stringResource(R.string.frame_image), Modifier.fillMaxSize().blur(5.dp), contentScale = ContentScale.FillBounds); Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.50f))); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.12f), Color(0x990B0D10), Color.Black.copy(alpha = 0.48f))))) } }
+@Composable private fun FightSmartSetupBackground() { Box(Modifier.fillMaxSize()) { Image(painterResource(R.drawable.frame_fight), stringResource(R.string.frame_image), Modifier.fillMaxSize().blur(5.dp), contentScale = ContentScale.FillBounds); Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.50f))); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.12f), Color(0x990B0D10), Color.Black.copy(alpha = 0.48f))))) } }
 @Composable private fun SectionTitle(text: String) { Text(text.uppercase(), color = Color.White.copy(alpha = 0.76f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp) }
-@Composable private fun CounterSection(title: String, value: Int, rangeText: String, onMinus: () -> Unit, onPlus: () -> Unit) { Column(Modifier.fillMaxWidth()) { SectionTitle(title); Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { SmallMetalButton("−", onMinus); Text(value.toString(), color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, modifier = Modifier.width(72.dp)); SmallMetalButton("+", onPlus) }; Text(rangeText, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) } }
+@Composable private fun CounterSection(title: String, value: Int, onMinus: () -> Unit, onPlus: () -> Unit) { Column(Modifier.fillMaxWidth()) { SectionTitle(title); Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { SmallMetalButton("−", onMinus); Text(value.toString(), color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, modifier = Modifier.width(72.dp)); SmallMetalButton("+", onPlus) } } }
 @Composable private fun SmallMetalButton(text: String, onClick: () -> Unit) { val shape = RoundedCornerShape(12.dp); Box(Modifier.width(62.dp).height(36.dp).clip(shape).background(Brush.linearGradient(listOf(Color(0xFF2A2D31), Color(0xFF60646A), Color(0xFF1A1C20)))).border(1.dp, Color.White.copy(alpha = 0.30f), shape).clickable(onClick = onClick), contentAlignment = Alignment.Center) { Text(text, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold) } }
 @Composable private fun MoveCategoryCard(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) { val shape = RoundedCornerShape(14.dp); Card(modifier.clip(shape).clickable(onClick = onClick), shape = shape, colors = CardDefaults.cardColors(containerColor = Color.Transparent)) { Box(Modifier.fillMaxWidth().aspectRatio(3.35f)) { Image(painterResource(R.drawable.button), null, Modifier.matchParentSize().graphicsLayer(scaleX = 1.04f, scaleY = 1.18f), contentScale = ContentScale.FillBounds); if (!selected) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.30f))); Box(Modifier.matchParentSize().border(if (selected) 2.dp else 1.dp, if (selected) Color.White else Color.LightGray.copy(alpha = 0.55f), shape), contentAlignment = Alignment.Center) { Text(text, color = Color.White, fontWeight = FontWeight.Black, fontSize = 15.sp, textAlign = TextAlign.Center) } } } }
 @Composable private fun MoveOptionChip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) { val shape = RoundedCornerShape(18.dp); val colors = if (selected) listOf(Color(0xFF454545), Color(0xFF8B8B8B), Color(0xFFD8D8D8), Color(0xFF777777), Color(0xFF2F2F2F)) else listOf(Color(0xFF202225), Color(0xFF515151), Color(0xFF25272B)); Box(modifier.clip(shape).background(Brush.linearGradient(colors, Offset.Zero, Offset.Infinite), shape).border(if (selected) 2.dp else 1.dp, if (selected) Color.White.copy(alpha = 0.90f) else Color.LightGray.copy(alpha = 0.45f), shape).clickable(onClick = onClick).padding(vertical = 8.dp, horizontal = 8.dp), contentAlignment = Alignment.Center) { Text(text, color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) } }
