@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,16 +26,16 @@ fun BagPreviewPlaceholder() {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val cameraNode = rememberCameraNode(engine).apply {
-        position = Position(x = 0.0f, y = 1.1f, z = 4.2f)
-        lookAt(Position(x = 0.0f, y = 0.9f, z = 0.0f))
+        position = Position(x = 0.0f, y = 1.15f, z = 1.85f)
+        lookAt(Position(x = 0.0f, y = 0.85f, z = 0.0f))
     }
     val childNodes = rememberNodes {
         add(
             ModelNode(
                 modelInstance = modelLoader.createModelInstance("models/bag.glb"),
-                scaleToUnits = 1.7f
+                scaleToUnits = 3.8f
             ).apply {
-                position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
+                position = Position(x = 0.0f, y = -0.55f, z = 0.0f)
             }
         )
     }
@@ -44,7 +43,7 @@ fun BagPreviewPlaceholder() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(170.dp)
+            .height(220.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(Color.Black.copy(alpha = 0.40f)),
         contentAlignment = Alignment.Center
