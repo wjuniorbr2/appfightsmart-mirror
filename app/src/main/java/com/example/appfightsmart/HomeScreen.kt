@@ -179,7 +179,9 @@ fun HomeScreen(
             }
             Box(Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
                 Surface(shape = RoundedCornerShape(18.dp), color = Color.Black.copy(alpha = 0.62f), modifier = Modifier.fillMaxSize()) {
-                    Box(contentAlignment = Alignment.Center) { BagPreviewPlaceholder() }
+                    Box(contentAlignment = Alignment.Center) {
+                        BagPreviewPlaceholder(bluetoothManager = bluetoothManager, sensorConnected = sensorConnected)
+                    }
                 }
             }
         }
