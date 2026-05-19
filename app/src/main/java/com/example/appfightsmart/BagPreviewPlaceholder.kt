@@ -42,12 +42,12 @@ fun BagPreviewPlaceholder(
         // x = left/right angle. Negative starts from the left side.
         // y = camera height.
         // z = distance/zoom. Smaller z zooms in; larger z zooms out.
-        position = Position(x = -1.25f, y = 2.18f, z = 3.25f)
+        position = Position(x = -1.25f, y = 1.5f, z = 1.00f)
 
         // Target tuning:
         // y controls what vertical point the camera centers on.
         // Higher y centers more on chains/support; lower y centers more on the bag body.
-        lookAt(Position(x = 0.0f, y = 1.25f, z = 0.0f))
+        lookAt(Position(x = 0.0f, y = 1.30f, z = 0.0f))
     }
 
     var latestRoll by remember { mutableFloatStateOf(0f) }
