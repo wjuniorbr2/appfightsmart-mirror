@@ -177,6 +177,11 @@ fun HomeScreen(
                     ButtonWithDivider(onClick = { navController.navigate(Screen.PlayerProfiles.route) }, text = "Add players", compact = true)
                 }
             }
+            Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+                Surface(shape = RoundedCornerShape(18.dp), color = Color.Black.copy(alpha = 0.62f), modifier = Modifier.fillMaxWidth().height(44.dp)) {
+                    Box(contentAlignment = Alignment.Center) { BagPreviewPlaceholder() }
+                }
+            }
         }
         if (showConnectionMessage) {
             Box(Modifier.fillMaxSize().padding(top = 292.dp), contentAlignment = Alignment.TopCenter) {
