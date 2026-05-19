@@ -1,15 +1,15 @@
 [versions]
 androidGradlePlugin = "8.9.0"
-kotlin = "1.9.22"
+kotlin = "2.3.21"
+ksp = "2.3.4"
 core-ktx = "1.12.0"
 lifecycle-runtime-ktx = "2.7.0"
 activity-compose = "1.8.2"
-compose-bom = "2024.03.00"
+compose-bom = "2026.05.00"
 ui = "1.6.0"
 material3 = "1.2.0"
 junit = "4.13.2"
 espresso-core = "3.5.1"
-compose-compiler = "1.5.8"  # Define compose-compiler version here
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -31,3 +31,4 @@ androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-man
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
