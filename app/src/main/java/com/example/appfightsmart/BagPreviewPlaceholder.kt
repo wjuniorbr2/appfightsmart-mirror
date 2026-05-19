@@ -26,16 +26,17 @@ fun BagPreviewPlaceholder() {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val cameraNode = rememberCameraNode(engine).apply {
-        position = Position(x = 0.0f, y = 1.15f, z = 1.85f)
-        lookAt(Position(x = 0.0f, y = 0.85f, z = 0.0f))
+        // Higher, slightly left-side starting view, farther back so the full bag/chains/support are visible.
+        position = Position(x = -1.35f, y = 2.25f, z = 3.65f)
+        lookAt(Position(x = 0.0f, y = 1.25f, z = 0.0f))
     }
     val childNodes = rememberNodes {
         add(
             ModelNode(
                 modelInstance = modelLoader.createModelInstance("models/bag.glb"),
-                scaleToUnits = 3.8f
+                scaleToUnits = 2.25f
             ).apply {
-                position = Position(x = 0.0f, y = -0.55f, z = 0.0f)
+                position = Position(x = 0.0f, y = -0.20f, z = 0.0f)
             }
         )
     }
@@ -43,7 +44,7 @@ fun BagPreviewPlaceholder() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(300.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(Color.Black.copy(alpha = 0.40f)),
         contentAlignment = Alignment.Center
