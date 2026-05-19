@@ -167,9 +167,9 @@ fun GameScreen(
             g < a.light -> 8f + (g / a.light.coerceAtLeast(0.20f)) * 172f
             g < a.medium -> 180f + ((g - a.light) / (a.medium - a.light).coerceAtLeast(0.20f)) * 320f
             g < a.strong -> 500f + ((g - a.medium) / (a.strong - a.medium).coerceAtLeast(0.20f)) * 350f
-            else -> 850f + ((g - a.strong) / (a.strong * 0.70f).coerceAtLeast(1f)) * 149f
+            else -> 850f + ((g - a.strong) / (a.strong * 1.20f).coerceAtLeast(1.5f)) * 150f
         }
-        return score.coerceIn(0f, 999f)
+        return score.coerceIn(0f, 1000f)
     }
 
     fun resetImpactWindow() {
@@ -279,7 +279,7 @@ fun GameScreen(
     val gameFinished = currentPlayer >= playerList.size
     val moveName = selectedMoveType.ifBlank { stringResource(R.string.punch) }
     val liveScore = if (hitCaptured) capturedScore else calibratedPowerScore(currentForceG, selectedMoveType, heightList.getOrElse(currentPlayer) { 120 })
-    val forceFill = (liveScore / 999f).coerceIn(0f, 1f)
+    val forceFill = (liveScore / 1000f).coerceIn(0f, 1f)
     val isLastTurn = currentPlayer == playerList.lastIndex && currentMove == numberOfMoves - 1
     val readyToPunch = !gameFinished && !hitCaptured && !impactActive && !isPreparing
 
