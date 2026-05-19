@@ -26,17 +26,26 @@ fun BagPreviewPlaceholder() {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val cameraNode = rememberCameraNode(engine).apply {
-        // Higher, slightly left-side starting view, farther back so the full bag/chains/support are visible.
-        position = Position(x = -1.35f, y = 2.25f, z = 3.65f)
+        // Camera tuning:
+        // x = left/right angle. Negative starts from the left side.
+        // y = camera height.
+        // z = distance/zoom. Smaller z zooms in; larger z zooms out.
+        position = Position(x = -1.25f, y = 2.18f, z = 3.25f)
+
+        // Target tuning:
+        // y controls what vertical point the camera centers on.
+        // Higher y centers more on chains/support; lower y centers more on the bag body.
         lookAt(Position(x = 0.0f, y = 1.25f, z = 0.0f))
     }
     val childNodes = rememberNodes {
         add(
             ModelNode(
                 modelInstance = modelLoader.createModelInstance("models/bag.glb"),
-                scaleToUnits = 2.25f
+                // Model size tuning. Bigger number makes the whole model larger.
+                scaleToUnits = 2.35f
             ).apply {
-                position = Position(x = 0.0f, y = -0.20f, z = 0.0f)
+                // Model position tuning. Higher y moves the model up; lower y moves it down.
+                position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
             }
         )
     }
