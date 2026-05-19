@@ -178,7 +178,7 @@ fun HomeScreen(
                 }
             }
             Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-                Surface(shape = RoundedCornerShape(18.dp), color = Color.Black.copy(alpha = 0.62f), modifier = Modifier.fillMaxWidth().height(44.dp)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = Color.Black.copy(alpha = 0.62f), modifier = Modifier.fillMaxWidth()) {
                     Box(contentAlignment = Alignment.Center) { BagPreviewPlaceholder() }
                 }
             }
