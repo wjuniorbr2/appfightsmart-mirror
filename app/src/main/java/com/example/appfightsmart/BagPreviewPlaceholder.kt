@@ -8,6 +8,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -15,14 +22,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.sceneview.Scene
 import io.github.sceneview.math.Position
+import io.github.sceneview.math.Rotation
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
+import kotlin.math.abs
 
 @Composable
-fun BagPreviewPlaceholder() {
+fun BagPreviewPlaceholder(
+    bluetoothManager: BluetoothManager? = null,
+    sensorConnected: Boolean = false
+) {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
     val cameraNode = rememberCameraNode(engine).apply {
@@ -37,17 +49,52 @@ fun BagPreviewPlaceholder() {
         // Higher y centers more on chains/support; lower y centers more on the bag body.
         lookAt(Position(x = 0.0f, y = 1.25f, z = 0.0f))
     }
-    val childNodes = rememberNodes {
-        add(
-            ModelNode(
-                modelInstance = modelLoader.createModelInstance("models/bag.glb"),
-                // Model size tuning. Bigger number makes the whole model larger.
-                scaleToUnits = 2.35f
-            ).apply {
-                // Model position tuning. Higher y moves the model up; lower y moves it down.
-                position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
+
+    var latestRoll by remember { mutableFloatStateOf(0f) }
+    var latestPitch by remember { mutableFloatStateOf(0f) }
+    var latestYaw by remember { mutableFloatStateOf(0f) }
+    var bagNode by remember { mutableStateOf<ModelNode?>(null) }
+
+    DisposableEffect(bluetoothManager, sensorConnected) {
+        if (bluetoothManager == null || !sensorConnected) return@DisposableEffect onDispose { }
+
+        val listener: (ByteArray) -> Unit = { bytes ->
+            parseAngleFrame(bytes)?.let { angle ->
+                latestRoll = angle.roll
+                latestPitch = angle.pitch
+                latestYaw = angle.yaw
             }
+        }
+        bluetoothManager.addDataListener(listener)
+        onDispose { bluetoothManager.removeDataListener(listener) }
+    }
+
+    LaunchedEffect(latestRoll, latestPitch, latestYaw) {
+        val visualRoll = latestRoll.coerceIn(-28f, 28f)
+        val visualPitch = latestPitch.coerceIn(-28f, 28f)
+
+        // Temporary first sensor animation:
+        // This rotates the loaded GLB node. If the GLB contains the room/floor/walls,
+        // those will move too. Final version should rotate BagSwingRoot only or use a
+        // separated bag_moving.glb.
+        bagNode?.rotation = Rotation(
+            x = -visualPitch,
+            y = 0.0f,
+            z = -visualRoll
         )
+    }
+
+    val childNodes = rememberNodes {
+        val node = ModelNode(
+            modelInstance = modelLoader.createModelInstance("models/bag.glb"),
+            // Model size tuning. Bigger number makes the whole model larger.
+            scaleToUnits = 2.35f
+        ).apply {
+            // Model position tuning. Higher y moves the model up; lower y moves it down.
+            position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
+        }
+        bagNode = node
+        add(node)
     }
 
     Box(
@@ -67,4 +114,27 @@ fun BagPreviewPlaceholder() {
         )
         Text("", color = Color.Transparent)
     }
+}
+
+private data class PreviewAngleFrame(
+    val roll: Float,
+    val pitch: Float,
+    val yaw: Float
+)
+
+private fun parseAngleFrame(bytes: ByteArray): PreviewAngleFrame? {
+    if (bytes.size < 11 || bytes[0] != 0x55.toByte() || bytes[1] != 0x53.toByte()) return null
+
+    fun s16(i: Int): Int {
+        val low = bytes[i].toInt() and 0xFF
+        val high = bytes[i + 1].toInt()
+        return (high shl 8) or low
+    }
+
+    val roll = (s16(2) / 32768.0 * 180.0).toFloat()
+    val pitch = (s16(4) / 32768.0 * 180.0).toFloat()
+    val yaw = (s16(6) / 32768.0 * 180.0).toFloat()
+
+    if (abs(roll) > 180f || abs(pitch) > 180f || abs(yaw) > 180f) return null
+    return PreviewAngleFrame(roll = roll, pitch = pitch, yaw = yaw)
 }
