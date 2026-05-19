@@ -1,6 +1,7 @@
 package com.example.appfightsmart
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import io.github.sceneview.Scene
 import io.github.sceneview.math.Position
@@ -64,6 +66,21 @@ fun BagPreviewPlaceholder() {
             modelLoader = modelLoader,
             cameraNode = cameraNode,
             childNodes = childNodes
+        )
+        // Keep the preview camera fixed. This prevents the first touch from making
+        // SceneView's default touch controller re-center/pan the camera.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { it.consume() }
+                            if (event.changes.all { !it.pressed }) break
+                        }
+                    }
+                }
         )
         Text("", color = Color.Transparent)
     }
