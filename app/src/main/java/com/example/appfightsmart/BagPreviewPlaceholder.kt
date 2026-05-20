@@ -60,9 +60,8 @@ private const val CAMERA_ROTATE_SPEED_Y = 0.12f
 private const val CAMERA_PAN_SPEED = 0.00008f
 
 // Bag motion tuning values.
-// If the top still moves away from the support, increase BAG_TOP_PIVOT_HEIGHT a little.
-// If the bag over-corrects and the bottom moves too much, decrease it.
-private const val BAG_TOP_PIVOT_HEIGHT = 0.18f
+// The current test rotates the bag only. Realistic top-hinged swing depends on
+// bag_moving.glb having its exported origin/pivot at the top chain/support point.
 private const val SENSOR_VISUAL_GAIN = 1.0f
 
 @Composable
@@ -142,24 +141,18 @@ fun BagPreviewPlaceholder(
 
         val rotationX = -visualPitch
         val rotationZ = -visualRoll
-        val pitchRad = rotationX.toRadians()
-        val rollRad = rotationZ.toRadians()
 
-        // Simulate rotation around a top pivot. The model itself rotates around its origin,
-        // so this translation compensates to keep the top closer to the support.
-        val xCompensation = -BAG_TOP_PIVOT_HEIGHT * sin(rollRad)
-        val zCompensation = BAG_TOP_PIVOT_HEIGHT * sin(pitchRad)
-        val yCompensation = BAG_TOP_PIVOT_HEIGHT * (cos(rollRad) * cos(pitchRad) - 1.0f)
-
+        // Rotate only. Do not translate the model here; translation made the bag slide/teleport.
+        // If this tilts around the wrong point, fix the exported pivot/origin of bag_moving.glb.
         movingBagNode?.rotation = Rotation(
             x = rotationX,
             y = 0.0f,
             z = rotationZ
         )
         movingBagNode?.position = Position(
-            x = xCompensation,
-            y = yCompensation,
-            z = zCompensation
+            x = 0.0f,
+            y = 0.0f,
+            z = 0.0f
         )
     }
 
@@ -234,8 +227,7 @@ fun BagPreviewPlaceholder(
             Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
             Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
-            Text("zoom range ${CAMERA_MIN_DISTANCE.format3()} - ${CAMERA_MAX_DISTANCE.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
-            Text("models: original-scale split GLBs", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
+            Text("motion: rotation only", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
 }
