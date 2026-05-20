@@ -64,7 +64,7 @@ fun BagPreviewPlaceholder(
     var rawFramesSeen by remember { mutableIntStateOf(0) }
     var angleFramesSeen by remember { mutableIntStateOf(0) }
     var lastFrameType by remember { mutableStateOf("none") }
-    var bagNode by remember { mutableStateOf<ModelNode?>(null) }
+    var movingBagNode by remember { mutableStateOf<ModelNode?>(null) }
 
     DisposableEffect(bluetoothManager, sensorConnected) {
         if (bluetoothManager == null || !sensorConnected) return@DisposableEffect onDispose { }
@@ -86,15 +86,12 @@ fun BagPreviewPlaceholder(
         onDispose { bluetoothManager.removeDataListener(listener) }
     }
 
-    LaunchedEffect(latestRoll, latestPitch, latestYaw, bagNode) {
+    LaunchedEffect(latestRoll, latestPitch, latestYaw, movingBagNode) {
         val visualRoll = (latestRoll * 2.0f).coerceIn(-55f, 55f)
         val visualPitch = (latestPitch * 2.0f).coerceIn(-55f, 55f)
 
-        // Temporary first sensor animation:
-        // This rotates the loaded GLB node. If the GLB contains the room/floor/walls,
-        // those will move too. Final version should rotate BagSwingRoot only or use a
-        // separated bag_moving.glb.
-        bagNode?.rotation = Rotation(
+        // Rotate only the moving bag model. The static room model stays fixed.
+        movingBagNode?.rotation = Rotation(
             x = -visualPitch,
             y = 0.0f,
             z = -visualRoll
@@ -102,16 +99,23 @@ fun BagPreviewPlaceholder(
     }
 
     val childNodes = rememberNodes {
-        val node = ModelNode(
-            modelInstance = modelLoader.createModelInstance("models/bag.glb"),
-            // Model size tuning. Bigger number makes the whole model larger.
+        val roomNode = ModelNode(
+            modelInstance = modelLoader.createModelInstance("models/room_static.glb"),
             scaleToUnits = 2.35f
         ).apply {
-            // Model position tuning. Higher y moves the model up; lower y moves it down.
             position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
         }
-        bagNode = node
-        add(node)
+
+        val bagNode = ModelNode(
+            modelInstance = modelLoader.createModelInstance("models/bag_moving.glb"),
+            scaleToUnits = 2.35f
+        ).apply {
+            position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
+        }
+
+        movingBagNode = bagNode
+        add(roomNode)
+        add(bagNode)
     }
 
     Box(
@@ -140,6 +144,7 @@ fun BagPreviewPlaceholder(
             Text("connected: $sensorConnected", color = if (sensorConnected) Color(0xFF77FF77) else Color(0xFFFF7777), fontSize = 10.sp)
             Text("raw: $rawFramesSeen | angle: $angleFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
+            Text("models: room_static + bag_moving", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
 }
