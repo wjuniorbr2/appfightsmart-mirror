@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -195,7 +196,15 @@ fun BagPreviewPlaceholder(
             .fillMaxWidth()
             .height(300.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.Black.copy(alpha = 0.40f)),
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFFFFFF),
+                        Color(0xFFF4F4F4),
+                        Color(0xFFE4E4E4)
+                    )
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
         Scene(
