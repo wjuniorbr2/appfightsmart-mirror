@@ -64,7 +64,7 @@ private const val CAMERA_PAN_SPEED = 0.00008f
 // Keep gain near 1.0 for direct cube-style orientation matching.
 private const val REALTIME_TILT_GAIN = 1.0f
 private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
-private const val REALTIME_SMOOTHING_ALPHA = 0.42f
+private const val REALTIME_SMOOTHING_ALPHA = 0.22f
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -101,6 +101,9 @@ fun BagPreviewPlaceholder(
     var sensorRoll by remember { mutableFloatStateOf(0f) }
     var sensorPitch by remember { mutableFloatStateOf(0f) }
     var sensorYaw by remember { mutableFloatStateOf(0f) }
+    var baselineRoll by remember { mutableFloatStateOf(0f) }
+    var baselinePitch by remember { mutableFloatStateOf(0f) }
+    var hasOrientationBaseline by remember { mutableStateOf(false) }
     var displayedRoll by remember { mutableFloatStateOf(0f) }
     var displayedPitch by remember { mutableFloatStateOf(0f) }
     var rawFramesSeen by remember { mutableIntStateOf(0) }
@@ -108,6 +111,18 @@ fun BagPreviewPlaceholder(
     var combined61FramesSeen by remember { mutableIntStateOf(0) }
     var lastFrameType by remember { mutableStateOf("none") }
     var movingBagNode by remember { mutableStateOf<ModelNode?>(null) }
+
+    LaunchedEffect(sensorConnected) {
+        hasOrientationBaseline = false
+        displayedRoll = 0.0f
+        displayedPitch = 0.0f
+        if (!sensorConnected) {
+            sensorRoll = 0.0f
+            sensorPitch = 0.0f
+            sensorYaw = 0.0f
+        }
+        movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch)
+    }
 
     DisposableEffect(bluetoothManager, sensorConnected) {
         if (bluetoothManager == null || !sensorConnected) return@DisposableEffect onDispose { }
@@ -130,9 +145,17 @@ fun BagPreviewPlaceholder(
                     sensorPitch = angle.pitch
                     sensorYaw = angle.yaw
 
-                    val targetRoll = (angle.roll * REALTIME_TILT_GAIN)
+                    if (!hasOrientationBaseline) {
+                        baselineRoll = angle.roll
+                        baselinePitch = angle.pitch
+                        hasOrientationBaseline = true
+                    }
+
+                    val relativeRoll = angleDeltaDegrees(angle.roll, baselineRoll)
+                    val relativePitch = angleDeltaDegrees(angle.pitch, baselinePitch)
+                    val targetRoll = (relativeRoll * REALTIME_TILT_GAIN)
                         .coerceIn(-REALTIME_MAX_ANGLE_DEGREES, REALTIME_MAX_ANGLE_DEGREES)
-                    val targetPitch = (angle.pitch * REALTIME_TILT_GAIN)
+                    val targetPitch = (relativePitch * REALTIME_TILT_GAIN)
                         .coerceIn(-REALTIME_MAX_ANGLE_DEGREES, REALTIME_MAX_ANGLE_DEGREES)
 
                     displayedRoll += (targetRoll - displayedRoll) * REALTIME_SMOOTHING_ALPHA
@@ -228,9 +251,10 @@ fun BagPreviewPlaceholder(
             Text("frame: $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("roll ${sensorRoll.format1()}  pitch ${sensorPitch.format1()}  yaw ${sensorYaw.format1()}", color = Color.White, fontSize = 10.sp)
             Text("bag r ${displayedRoll.format1()}  p ${displayedPitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
+            Text("base r ${baselineRoll.format1()}  p ${baselinePitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
-            Text("motion: fused orientation follow", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
+            Text("motion: fused orientation delta", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
 }
@@ -338,6 +362,13 @@ private fun s16(bytes: ByteArray, start: Int, offset: Int): Int {
     val low = bytes[i].toInt() and 0xFF
     val high = bytes[i + 1].toInt()
     return (high shl 8) or low
+}
+
+private fun angleDeltaDegrees(current: Float, baseline: Float): Float {
+    var delta = current - baseline
+    while (delta > 180.0f) delta -= 360.0f
+    while (delta < -180.0f) delta += 360.0f
+    return delta
 }
 
 private fun ModelNode.applyBagOrientation(roll: Float, pitch: Float) {
