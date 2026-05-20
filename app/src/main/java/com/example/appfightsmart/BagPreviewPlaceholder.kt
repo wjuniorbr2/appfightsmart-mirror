@@ -51,13 +51,17 @@ private const val CAMERA_START_YAW_DEGREES = -25.0f
 private const val CAMERA_START_PITCH_DEGREES = 8.0f
 
 // Zoom limits are relative to your chosen CAMERA_START_DISTANCE.
-// This prevents the first pinch/drag from forcing the camera back to an old hardcoded distance.
 private const val CAMERA_MIN_DISTANCE = CAMERA_START_DISTANCE * 0.35f
 private const val CAMERA_MAX_DISTANCE = CAMERA_START_DISTANCE * 8.0f
 
+// Camera gesture tuning.
+private const val CAMERA_ROTATE_SPEED_X = 0.20f
+private const val CAMERA_ROTATE_SPEED_Y = 0.12f
+private const val CAMERA_PAN_SPEED = 0.00008f
+
 // Bag motion tuning values.
-// If the bottom still looks anchored, increase BAG_TOP_PIVOT_HEIGHT a little.
-// If the bag moves too much sideways, decrease it.
+// If the top still moves away from the support, increase BAG_TOP_PIVOT_HEIGHT a little.
+// If the bag over-corrects and the bottom moves too much, decrease it.
 private const val BAG_TOP_PIVOT_HEIGHT = 0.18f
 private const val SENSOR_VISUAL_GAIN = 1.0f
 
@@ -70,22 +74,25 @@ fun BagPreviewPlaceholder(
     val modelLoader = rememberModelLoader(engine)
     val scope = rememberCoroutineScope()
 
+    var cameraTargetX by remember { mutableFloatStateOf(CAMERA_TARGET_X) }
+    var cameraTargetY by remember { mutableFloatStateOf(CAMERA_TARGET_Y) }
+    var cameraTargetZ by remember { mutableFloatStateOf(CAMERA_TARGET_Z) }
     var cameraDistance by remember { mutableFloatStateOf(CAMERA_START_DISTANCE) }
     var cameraYawDegrees by remember { mutableFloatStateOf(CAMERA_START_YAW_DEGREES) }
     var cameraPitchDegrees by remember { mutableFloatStateOf(CAMERA_START_PITCH_DEGREES) }
 
     val cameraNode = rememberCameraNode(engine)
 
-    LaunchedEffect(cameraDistance, cameraYawDegrees, cameraPitchDegrees) {
+    LaunchedEffect(cameraTargetX, cameraTargetY, cameraTargetZ, cameraDistance, cameraYawDegrees, cameraPitchDegrees) {
         val yaw = cameraYawDegrees.toRadians()
         val pitch = cameraPitchDegrees.toRadians()
         val horizontalDistance = cameraDistance * cos(pitch)
-        val cameraX = CAMERA_TARGET_X + horizontalDistance * sin(yaw)
-        val cameraY = CAMERA_TARGET_Y + cameraDistance * sin(pitch)
-        val cameraZ = CAMERA_TARGET_Z + horizontalDistance * cos(yaw)
+        val cameraX = cameraTargetX + horizontalDistance * sin(yaw)
+        val cameraY = cameraTargetY + cameraDistance * sin(pitch)
+        val cameraZ = cameraTargetZ + horizontalDistance * cos(yaw)
 
         cameraNode.position = Position(x = cameraX, y = cameraY, z = cameraZ)
-        cameraNode.lookAt(Position(x = CAMERA_TARGET_X, y = CAMERA_TARGET_Y, z = CAMERA_TARGET_Z))
+        cameraNode.lookAt(Position(x = cameraTargetX, y = cameraTargetY, z = cameraTargetZ))
     }
 
     var latestRoll by remember { mutableFloatStateOf(0f) }
@@ -138,9 +145,11 @@ fun BagPreviewPlaceholder(
         val pitchRad = rotationX.toRadians()
         val rollRad = rotationZ.toRadians()
 
-        val xCompensation = BAG_TOP_PIVOT_HEIGHT * sin(rollRad)
-        val zCompensation = -BAG_TOP_PIVOT_HEIGHT * sin(pitchRad)
-        val yCompensation = BAG_TOP_PIVOT_HEIGHT * (2.0f - cos(rollRad) - cos(pitchRad))
+        // Simulate rotation around a top pivot. The model itself rotates around its origin,
+        // so this translation compensates to keep the top closer to the support.
+        val xCompensation = -BAG_TOP_PIVOT_HEIGHT * sin(rollRad)
+        val zCompensation = BAG_TOP_PIVOT_HEIGHT * sin(pitchRad)
+        val yCompensation = BAG_TOP_PIVOT_HEIGHT * (cos(rollRad) * cos(pitchRad) - 1.0f)
 
         movingBagNode?.rotation = Rotation(
             x = rotationX,
@@ -188,20 +197,26 @@ fun BagPreviewPlaceholder(
             childNodes = childNodes
         )
 
-        // Custom camera control. This replaces SceneView's default touch camera behavior,
-        // so the first touch should not jump anymore.
-        // One finger drag rotates around the bag. Pinch zoom changes cameraDistance.
+        // Custom camera control:
+        // - one-finger drag: orbit around target
+        // - two-finger drag: pan target
+        // - pinch: zoom
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
-                        cameraYawDegrees = (cameraYawDegrees - pan.x * 0.20f)
-                            .coerceIn(-180.0f, 180.0f)
-                        cameraPitchDegrees = (cameraPitchDegrees + pan.y * 0.12f)
-                            .coerceIn(-25.0f, 55.0f)
-                        cameraDistance = (cameraDistance / zoom)
-                            .coerceIn(CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
+                        if (zoom == 1.0f) {
+                            cameraYawDegrees = (cameraYawDegrees - pan.x * CAMERA_ROTATE_SPEED_X)
+                                .coerceIn(-180.0f, 180.0f)
+                            cameraPitchDegrees = (cameraPitchDegrees + pan.y * CAMERA_ROTATE_SPEED_Y)
+                                .coerceIn(-25.0f, 55.0f)
+                        } else {
+                            cameraTargetX -= pan.x * CAMERA_PAN_SPEED
+                            cameraTargetY += pan.y * CAMERA_PAN_SPEED
+                            cameraDistance = (cameraDistance / zoom)
+                                .coerceIn(CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
+                        }
                     }
                 }
         )
@@ -218,6 +233,7 @@ fun BagPreviewPlaceholder(
             Text("raw: $rawFramesSeen | angle: $angleFramesSeen | accel: $accelFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
             Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
+            Text("target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
             Text("zoom range ${CAMERA_MIN_DISTANCE.format3()} - ${CAMERA_MAX_DISTANCE.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
             Text("models: original-scale split GLBs", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
