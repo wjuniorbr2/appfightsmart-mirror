@@ -67,9 +67,9 @@ private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
 private const val REALTIME_SMOOTHING_ALPHA = 0.22f
 // The calibration baseline files show normal still-bag wander near 0.6-0.7 deg.
 // Use a higher gate here because a hanging bag is rarely perfectly still in real use.
-private const val BASELINE_STABLE_WINDOW_DEGREES = 2.0f
-private const val BASELINE_STABLE_GYRO_DPS = 12.0f
-private const val BASELINE_STABLE_FRAMES = 70
+private const val BASELINE_STABLE_WINDOW_DEGREES = 3.0f
+private const val BASELINE_STABLE_GYRO_DPS = 18.0f
+private const val BASELINE_STABLE_FRAMES = 100
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -120,6 +120,8 @@ fun BagPreviewPlaceholder(
     var angle53FramesSeen by remember { mutableIntStateOf(0) }
     var combined61FramesSeen by remember { mutableIntStateOf(0) }
     var lastFrameType by remember { mutableStateOf("none") }
+    var hasLastSensorFrameHash by remember { mutableStateOf(false) }
+    var lastSensorFrameHash by remember { mutableIntStateOf(0) }
     var movingBagNode by remember { mutableStateOf<ModelNode?>(null) }
 
     LaunchedEffect(sensorConnected) {
@@ -128,6 +130,8 @@ fun BagPreviewPlaceholder(
         stableBaselineFrames = 0
         baselineDeltaRollSum = 0.0f
         baselineDeltaPitchSum = 0.0f
+        hasLastSensorFrameHash = false
+        lastSensorFrameHash = 0
         baselineStatus = if (sensorConnected) "settling" else "waiting"
         displayedRoll = 0.0f
         displayedPitch = 0.0f
@@ -147,22 +151,31 @@ fun BagPreviewPlaceholder(
             // BluetoothManager also emits raw BLE chunks after parsed frames. Ignore those
             // for animation/calibration so baseline settling is not double-counted.
             val sensorFrames = if (bytes.size == 11 || bytes.size == 20) parsedFrames else emptyList()
+            val sensorFrameHash = if (sensorFrames.isNotEmpty()) bytes.contentHashCode() else 0
             scope.launch {
                 rawFramesSeen += parsedFrames.size
-                if (sensorFrames.isNotEmpty()) {
-                    lastFrameType = sensorFrames.last().frameType
+                val freshSensorFrames = if (sensorFrames.isNotEmpty() && (!hasLastSensorFrameHash || sensorFrameHash != lastSensorFrameHash)) {
+                    hasLastSensorFrameHash = true
+                    lastSensorFrameHash = sensorFrameHash
+                    sensorFrames
+                } else {
+                    emptyList()
+                }
+
+                if (freshSensorFrames.isNotEmpty()) {
+                    lastFrameType = freshSensorFrames.last().frameType
                 } else if (lastFrameType == "none") {
                     lastFrameType = "raw_${bytes.size}"
                 }
 
-                sensorFrames.forEach { frame ->
+                freshSensorFrames.forEach { frame ->
                     when (frame.frameType) {
                         FRAME_TYPE_ANGLE_53 -> if (frame.angle != null) angle53FramesSeen++
                         FRAME_TYPE_COMBINED_61 -> if (frame.angle != null) combined61FramesSeen++
                     }
                 }
 
-                sensorFrames.lastOrNull { it.angle != null }?.let { orientationFrame ->
+                freshSensorFrames.lastOrNull { it.angle != null }?.let { orientationFrame ->
                     val angle = orientationFrame.angle ?: return@let
                     sensorRoll = angle.roll
                     sensorPitch = angle.pitch
@@ -458,7 +471,7 @@ private fun ModelNode.applyBagOrientation(roll: Float, pitch: Float) {
     rotation = Rotation(
         x = -roll,
         y = 0.0f,
-        z = pitch
+        z = -pitch
     )
     position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
 }
