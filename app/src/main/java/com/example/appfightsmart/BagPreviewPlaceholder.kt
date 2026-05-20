@@ -65,10 +65,11 @@ private const val CAMERA_PAN_SPEED = 0.00008f
 private const val REALTIME_TILT_GAIN = 1.0f
 private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
 private const val REALTIME_SMOOTHING_ALPHA = 0.22f
-// The calibration baseline files show normal still-bag wander near 0.6-0.7 deg over this window.
-private const val BASELINE_STABLE_WINDOW_DEGREES = 0.8f
-private const val BASELINE_STABLE_GYRO_DPS = 4.0f
-private const val BASELINE_STABLE_FRAMES = 80
+// The calibration baseline files show normal still-bag wander near 0.6-0.7 deg.
+// Use a higher gate here because a hanging bag is rarely perfectly still in real use.
+private const val BASELINE_STABLE_WINDOW_DEGREES = 2.0f
+private const val BASELINE_STABLE_GYRO_DPS = 12.0f
+private const val BASELINE_STABLE_FRAMES = 70
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -107,6 +108,8 @@ fun BagPreviewPlaceholder(
     var sensorYaw by remember { mutableFloatStateOf(0f) }
     var baselineRoll by remember { mutableFloatStateOf(0f) }
     var baselinePitch by remember { mutableFloatStateOf(0f) }
+    var baselineDeltaRollSum by remember { mutableFloatStateOf(0f) }
+    var baselineDeltaPitchSum by remember { mutableFloatStateOf(0f) }
     var hasBaselineCandidate by remember { mutableStateOf(false) }
     var hasOrientationBaseline by remember { mutableStateOf(false) }
     var stableBaselineFrames by remember { mutableIntStateOf(0) }
@@ -123,6 +126,8 @@ fun BagPreviewPlaceholder(
         hasBaselineCandidate = false
         hasOrientationBaseline = false
         stableBaselineFrames = 0
+        baselineDeltaRollSum = 0.0f
+        baselineDeltaPitchSum = 0.0f
         baselineStatus = if (sensorConnected) "settling" else "waiting"
         displayedRoll = 0.0f
         displayedPitch = 0.0f
@@ -165,23 +170,29 @@ fun BagPreviewPlaceholder(
 
                     if (!hasOrientationBaseline) {
                         val gyroDps = orientationFrame.gyro?.maxAbs() ?: 0.0f
+                        val rollDelta = if (hasBaselineCandidate) angleDeltaDegrees(angle.roll, baselineRoll) else 0.0f
+                        val pitchDelta = if (hasBaselineCandidate) angleDeltaDegrees(angle.pitch, baselinePitch) else 0.0f
                         val isWithinAngleWindow = hasBaselineCandidate &&
-                                abs(angleDeltaDegrees(angle.roll, baselineRoll)) <= BASELINE_STABLE_WINDOW_DEGREES &&
-                                abs(angleDeltaDegrees(angle.pitch, baselinePitch)) <= BASELINE_STABLE_WINDOW_DEGREES
+                                abs(rollDelta) <= BASELINE_STABLE_WINDOW_DEGREES &&
+                                abs(pitchDelta) <= BASELINE_STABLE_WINDOW_DEGREES
                         val isStable = isWithinAngleWindow && gyroDps <= BASELINE_STABLE_GYRO_DPS
 
                         if (!isStable) {
                             baselineRoll = angle.roll
                             baselinePitch = angle.pitch
+                            baselineDeltaRollSum = 0.0f
+                            baselineDeltaPitchSum = 0.0f
                             hasBaselineCandidate = true
-                            stableBaselineFrames = 0
-                            baselineStatus = "settling"
+                            stableBaselineFrames = 1
+                            baselineStatus = "settling 1/$BASELINE_STABLE_FRAMES"
                         } else {
                             stableBaselineFrames++
+                            baselineDeltaRollSum += rollDelta
+                            baselineDeltaPitchSum += pitchDelta
                             baselineStatus = "settling $stableBaselineFrames/$BASELINE_STABLE_FRAMES"
                             if (stableBaselineFrames >= BASELINE_STABLE_FRAMES) {
-                                baselineRoll = angle.roll
-                                baselinePitch = angle.pitch
+                                baselineRoll = normalizeAngleDegrees(baselineRoll + baselineDeltaRollSum / stableBaselineFrames)
+                                baselinePitch = normalizeAngleDegrees(baselinePitch + baselineDeltaPitchSum / stableBaselineFrames)
                                 hasOrientationBaseline = true
                                 baselineStatus = "locked"
                             }
@@ -432,6 +443,13 @@ private fun angleDeltaDegrees(current: Float, baseline: Float): Float {
     while (delta > 180.0f) delta -= 360.0f
     while (delta < -180.0f) delta += 360.0f
     return delta
+}
+
+private fun normalizeAngleDegrees(angle: Float): Float {
+    var normalized = angle
+    while (normalized > 180.0f) normalized -= 360.0f
+    while (normalized < -180.0f) normalized += 360.0f
+    return normalized
 }
 
 private fun PreviewGyroFrame.maxAbs(): Float = maxOf(abs(x), abs(y), abs(z))
