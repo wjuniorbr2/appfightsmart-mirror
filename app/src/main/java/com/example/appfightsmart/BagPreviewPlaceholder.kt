@@ -46,16 +46,10 @@ fun BagPreviewPlaceholder(
     val scope = rememberCoroutineScope()
 
     val cameraNode = rememberCameraNode(engine).apply {
-        // Camera tuning:
-        // x = left/right angle. Negative starts from the left side.
-        // y = camera height.
-        // z = distance/zoom. Smaller z zooms in; larger z zooms out.
-        position = Position(x = -1.25f, y = 1.5f, z = 1.00f)
-
-        // Target tuning:
-        // y controls what vertical point the camera centers on.
-        // Higher y centers more on chains/support; lower y centers more on the bag body.
-        lookAt(Position(x = 0.0f, y = 1.30f, z = 0.0f))
+        // Camera tuning for original-scale split GLBs.
+        // If black/empty: increase z. If too far: decrease z.
+        position = Position(x = -0.85f, y = 0.78f, z = 1.80f)
+        lookAt(Position(x = 0.0f, y = 0.55f, z = 0.0f))
     }
 
     var latestRoll by remember { mutableFloatStateOf(0f) }
@@ -63,6 +57,7 @@ fun BagPreviewPlaceholder(
     var latestYaw by remember { mutableFloatStateOf(0f) }
     var rawFramesSeen by remember { mutableIntStateOf(0) }
     var angleFramesSeen by remember { mutableIntStateOf(0) }
+    var accelFramesSeen by remember { mutableIntStateOf(0) }
     var lastFrameType by remember { mutableStateOf("none") }
     var movingBagNode by remember { mutableStateOf<ModelNode?>(null) }
 
@@ -75,11 +70,22 @@ fun BagPreviewPlaceholder(
                 rawFramesSeen++
                 val last = parsedFrames.lastOrNull()
                 lastFrameType = last?.frameType ?: "raw_${bytes.size}"
+
                 parsedFrames.lastOrNull { it.angle != null }?.angle?.let { angle ->
                     angleFramesSeen++
                     latestRoll = angle.roll
                     latestPitch = angle.pitch
                     latestYaw = angle.yaw
+                }
+
+                // Fallback movement: if angle frames are not present, animate from acceleration frames.
+                parsedFrames.lastOrNull { it.accel != null }?.accel?.let { accel ->
+                    accelFramesSeen++
+                    if (angleFramesSeen == 0) {
+                        latestRoll = accel.x * 8.0f
+                        latestPitch = accel.y * 8.0f
+                        latestYaw = 0f
+                    }
                 }
             }
         }
@@ -88,10 +94,9 @@ fun BagPreviewPlaceholder(
     }
 
     LaunchedEffect(latestRoll, latestPitch, latestYaw, movingBagNode) {
-        val visualRoll = (latestRoll * 2.0f).coerceIn(-55f, 55f)
-        val visualPitch = (latestPitch * 2.0f).coerceIn(-55f, 55f)
+        val visualRoll = latestRoll.coerceIn(-55f, 55f)
+        val visualPitch = latestPitch.coerceIn(-55f, 55f)
 
-        // Rotate only the moving bag model. The static room model stays fixed.
         movingBagNode?.rotation = Rotation(
             x = -visualPitch,
             y = 0.0f,
@@ -141,7 +146,7 @@ fun BagPreviewPlaceholder(
         ) {
             Text("3D sensor debug", color = Color.White, fontSize = 10.sp)
             Text("connected: $sensorConnected", color = if (sensorConnected) Color(0xFF77FF77) else Color(0xFFFF7777), fontSize = 10.sp)
-            Text("raw: $rawFramesSeen | angle: $angleFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
+            Text("raw: $rawFramesSeen | angle: $angleFramesSeen | accel: $accelFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
             Text("models: original-scale split GLBs", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
@@ -154,9 +159,16 @@ private data class PreviewAngleFrame(
     val yaw: Float
 )
 
+private data class PreviewAccelFrame(
+    val x: Float,
+    val y: Float,
+    val z: Float
+)
+
 private data class PreviewParsedFrame(
     val frameType: String,
-    val angle: PreviewAngleFrame? = null
+    val angle: PreviewAngleFrame? = null,
+    val accel: PreviewAccelFrame? = null
 )
 
 private fun parsePreviewFrames(bytes: ByteArray): List<PreviewParsedFrame> {
@@ -177,7 +189,6 @@ private fun parsePreviewFrames(bytes: ByteArray): List<PreviewParsedFrame> {
 private fun parseSingleWitFrame(bytes: ByteArray, start: Int): PreviewParsedFrame {
     if (start + 10 >= bytes.size) return PreviewParsedFrame("short_${bytes.size - start}")
     val type = bytes[start + 1].toInt() and 0xFF
-    if (type != 0x53) return PreviewParsedFrame("wit_0x${type.toString(16)}")
 
     fun s16(offset: Int): Int {
         val i = start + offset
@@ -186,14 +197,24 @@ private fun parseSingleWitFrame(bytes: ByteArray, start: Int): PreviewParsedFram
         return (high shl 8) or low
     }
 
-    val roll = (s16(2) / 32768.0 * 180.0).toFloat()
-    val pitch = (s16(4) / 32768.0 * 180.0).toFloat()
-    val yaw = (s16(6) / 32768.0 * 180.0).toFloat()
-
-    val angle = if (abs(roll) <= 180f && abs(pitch) <= 180f && abs(yaw) <= 180f) {
-        PreviewAngleFrame(roll = roll, pitch = pitch, yaw = yaw)
-    } else null
-    return PreviewParsedFrame("angle_0x53", angle)
+    return when (type) {
+        0x51, 0x61 -> {
+            val x = (s16(2) / 32768.0 * 16.0).toFloat()
+            val y = (s16(4) / 32768.0 * 16.0).toFloat()
+            val z = (s16(6) / 32768.0 * 16.0).toFloat()
+            PreviewParsedFrame("accel_0x${type.toString(16)}", accel = PreviewAccelFrame(x, y, z))
+        }
+        0x53 -> {
+            val roll = (s16(2) / 32768.0 * 180.0).toFloat()
+            val pitch = (s16(4) / 32768.0 * 180.0).toFloat()
+            val yaw = (s16(6) / 32768.0 * 180.0).toFloat()
+            val angle = if (abs(roll) <= 180f && abs(pitch) <= 180f && abs(yaw) <= 180f) {
+                PreviewAngleFrame(roll = roll, pitch = pitch, yaw = yaw)
+            } else null
+            PreviewParsedFrame("angle_0x53", angle)
+        }
+        else -> PreviewParsedFrame("wit_0x${type.toString(16)}")
+    }
 }
 
 private fun Float.format1(): String = String.format("%.1f", this)
