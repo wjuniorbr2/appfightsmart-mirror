@@ -67,20 +67,14 @@ private const val REALTIME_YAW_GAIN = 1.0f
 private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
 private const val REALTIME_SMOOTHING_ALPHA = 0.22f
 private const val REALTIME_YAW_SMOOTHING_ALPHA = 0.28f
-// The calibration baseline files show normal still-bag wander near 0.6-0.7 deg.
-// Use a higher gate here because a hanging bag is rarely perfectly still in real use.
-private const val BASELINE_STABLE_WINDOW_DEGREES = 3.0f
-private const val BASELINE_STABLE_GYRO_DPS = 18.0f
-private const val BASELINE_STABLE_FRAMES = 100
-// After the first quiet-window lock, keep the stop prompt up while WIT fusion settles.
-private const val BASELINE_VERIFY_FRAMES = 180
-private const val BASELINE_VERIFY_READY_DEGREES = 2.0f
-private const val BASELINE_VERIFY_RESET_DEGREES = 8.0f
-private const val BASELINE_VERIFY_GYRO_DPS = 20.0f
-private const val BASELINE_VERIFY_ALPHA = 0.10f
+// A hanging bag is rarely perfectly still. Use a forgiving window, then lock once.
+private const val BASELINE_STABLE_WINDOW_DEGREES = 12.0f
+private const val BASELINE_STABLE_GYRO_DPS = 80.0f
+private const val BASELINE_STABLE_FRAMES = 60
 private const val ORIENTATION_FRAME_JUMP_DEGREES = 35.0f
 private const val SPIN_GYRO_DPS = 35.0f
 private const val SPIN_DOMINANCE_RATIO = 1.35f
+private const val SPIN_TILT_HOLD_FRAMES = 20
 private const val GYRO_FRAME_SECONDS = 0.01f
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
@@ -129,9 +123,7 @@ fun BagPreviewPlaceholder(
     var baselineDeltaYawSum by remember { mutableFloatStateOf(0f) }
     var hasBaselineCandidate by remember { mutableStateOf(false) }
     var hasOrientationBaseline by remember { mutableStateOf(false) }
-    var baselineReadyForMotion by remember { mutableStateOf(false) }
     var stableBaselineFrames by remember { mutableIntStateOf(0) }
-    var baselineVerifyFrames by remember { mutableIntStateOf(0) }
     var baselineStatus by remember { mutableStateOf("waiting") }
     var displayedRoll by remember { mutableFloatStateOf(0f) }
     var displayedPitch by remember { mutableFloatStateOf(0f) }
@@ -140,6 +132,7 @@ fun BagPreviewPlaceholder(
     var targetPitch by remember { mutableFloatStateOf(0f) }
     var targetYaw by remember { mutableFloatStateOf(0f) }
     var accumulatedYaw by remember { mutableFloatStateOf(0f) }
+    var spinHoldFrames by remember { mutableIntStateOf(0) }
     var rawFramesSeen by remember { mutableIntStateOf(0) }
     var angle53FramesSeen by remember { mutableIntStateOf(0) }
     var combined61FramesSeen by remember { mutableIntStateOf(0) }
@@ -155,9 +148,7 @@ fun BagPreviewPlaceholder(
     LaunchedEffect(sensorConnected) {
         hasBaselineCandidate = false
         hasOrientationBaseline = false
-        baselineReadyForMotion = false
         stableBaselineFrames = 0
-        baselineVerifyFrames = 0
         baselineDeltaRollSum = 0.0f
         baselineDeltaPitchSum = 0.0f
         baselineDeltaYawSum = 0.0f
@@ -168,6 +159,7 @@ fun BagPreviewPlaceholder(
         lastAcceptedPitch = 0.0f
         lastAcceptedYaw = 0.0f
         accumulatedYaw = 0.0f
+        spinHoldFrames = 0
         baselineStatus = if (sensorConnected) "settling" else "waiting"
         displayedRoll = 0.0f
         displayedPitch = 0.0f
@@ -239,7 +231,7 @@ fun BagPreviewPlaceholder(
                         val rollStep = angleDeltaDegrees(angle.roll, lastAcceptedRoll)
                         val pitchStep = angleDeltaDegrees(angle.pitch, lastAcceptedPitch)
                         val frameJump = maxOf(abs(rollStep), abs(pitchStep))
-                        if (frameJump > ORIENTATION_FRAME_JUMP_DEGREES && gyroDps <= BASELINE_VERIFY_GYRO_DPS) {
+                        if (frameJump > ORIENTATION_FRAME_JUMP_DEGREES && !isZSpinDominant && gyroDps <= BASELINE_STABLE_GYRO_DPS) {
                             baselineStatus = "jump ${frameJump.format1()}"
                             return@let
                         }
@@ -274,8 +266,6 @@ fun BagPreviewPlaceholder(
                             baselineDeltaYawSum = 0.0f
                             hasBaselineCandidate = true
                             stableBaselineFrames = 1
-                            baselineVerifyFrames = 0
-                            baselineReadyForMotion = false
                             baselineStatus = "settling 1/$BASELINE_STABLE_FRAMES"
                         } else {
                             stableBaselineFrames++
@@ -288,9 +278,7 @@ fun BagPreviewPlaceholder(
                                 baselinePitch = normalizeAngleDegrees(baselinePitch + baselineDeltaPitchSum / stableBaselineFrames)
                                 baselineYaw += baselineDeltaYawSum / stableBaselineFrames
                                 hasOrientationBaseline = true
-                                baselineReadyForMotion = false
-                                baselineVerifyFrames = 0
-                                baselineStatus = "verifying 0/$BASELINE_VERIFY_FRAMES"
+                                baselineStatus = "locked"
                             }
                         }
 
@@ -312,56 +300,15 @@ fun BagPreviewPlaceholder(
                     val measuredTargetPitch = (relativePitch * REALTIME_TILT_GAIN)
                         .coerceIn(-REALTIME_MAX_ANGLE_DEGREES, REALTIME_MAX_ANGLE_DEGREES)
                     val measuredTargetYaw = relativeYaw * REALTIME_YAW_GAIN
-                    val targetMagnitude = maxOf(abs(measuredTargetRoll), abs(measuredTargetPitch))
 
-                    if (!baselineReadyForMotion) {
-                        targetRoll = measuredTargetRoll
-                        targetPitch = measuredTargetPitch
-                        targetYaw = measuredTargetYaw
-                        if (gyroDps > BASELINE_VERIFY_GYRO_DPS || targetMagnitude > BASELINE_VERIFY_RESET_DEGREES) {
-                            baselineRoll = angle.roll
-                            baselinePitch = angle.pitch
-                            baselineYaw = accumulatedYaw
-                            baselineDeltaRollSum = 0.0f
-                            baselineDeltaPitchSum = 0.0f
-                            baselineDeltaYawSum = 0.0f
-                            hasBaselineCandidate = true
-                            hasOrientationBaseline = false
-                            baselineReadyForMotion = false
-                            stableBaselineFrames = 1
-                            baselineVerifyFrames = 0
-                            baselineStatus = "settling 1/$BASELINE_STABLE_FRAMES"
-                            displayedRoll = 0.0f
-                            displayedPitch = 0.0f
-                            displayedYaw = 0.0f
-                            targetRoll = 0.0f
-                            targetPitch = 0.0f
-                            targetYaw = 0.0f
-                            movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch, displayedYaw)
-                            return@let
-                        }
-
-                        baselineRoll = normalizeAngleDegrees(baselineRoll + relativeRoll * BASELINE_VERIFY_ALPHA)
-                        baselinePitch = normalizeAngleDegrees(baselinePitch + relativePitch * BASELINE_VERIFY_ALPHA)
-                        baselineYaw += relativeYaw * BASELINE_VERIFY_ALPHA
-                        baselineVerifyFrames++
-                        baselineStatus = "verifying $baselineVerifyFrames/$BASELINE_VERIFY_FRAMES"
-                        displayedRoll = 0.0f
-                        displayedPitch = 0.0f
-                        displayedYaw = 0.0f
-                        movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch, displayedYaw)
-
-                        if (baselineVerifyFrames >= BASELINE_VERIFY_FRAMES &&
-                            targetMagnitude <= BASELINE_VERIFY_READY_DEGREES &&
-                            abs(targetYaw) <= BASELINE_VERIFY_READY_DEGREES
-                        ) {
-                            baselineReadyForMotion = true
-                            baselineStatus = "locked"
-                        }
-                        return@let
+                    if (isZSpinDominant) {
+                        spinHoldFrames = SPIN_TILT_HOLD_FRAMES
                     }
-
-                    if (!isZSpinDominant) {
+                    val holdTiltForSpin = isZSpinDominant || spinHoldFrames > 0
+                    if (!isZSpinDominant && spinHoldFrames > 0) {
+                        spinHoldFrames--
+                    }
+                    if (!holdTiltForSpin) {
                         targetRoll = measuredTargetRoll
                         targetPitch = measuredTargetPitch
                     }
@@ -448,7 +395,7 @@ fun BagPreviewPlaceholder(
                 }
         )
 
-        if (sensorConnected && !baselineReadyForMotion) {
+        if (sensorConnected && !hasOrientationBaseline) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
