@@ -2,9 +2,11 @@ package com.example.appfightsmart
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -12,14 +14,17 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.sceneview.Scene
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
@@ -28,6 +33,7 @@ import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @Composable
@@ -37,6 +43,8 @@ fun BagPreviewPlaceholder(
 ) {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine)
+    val scope = rememberCoroutineScope()
+
     val cameraNode = rememberCameraNode(engine).apply {
         // Camera tuning:
         // x = left/right angle. Negative starts from the left side.
@@ -53,25 +61,34 @@ fun BagPreviewPlaceholder(
     var latestRoll by remember { mutableFloatStateOf(0f) }
     var latestPitch by remember { mutableFloatStateOf(0f) }
     var latestYaw by remember { mutableFloatStateOf(0f) }
+    var rawFramesSeen by remember { mutableIntStateOf(0) }
+    var angleFramesSeen by remember { mutableIntStateOf(0) }
+    var lastFrameType by remember { mutableStateOf("none") }
     var bagNode by remember { mutableStateOf<ModelNode?>(null) }
 
     DisposableEffect(bluetoothManager, sensorConnected) {
         if (bluetoothManager == null || !sensorConnected) return@DisposableEffect onDispose { }
 
         val listener: (ByteArray) -> Unit = { bytes ->
-            parseAngleFrame(bytes)?.let { angle ->
-                latestRoll = angle.roll
-                latestPitch = angle.pitch
-                latestYaw = angle.yaw
+            val parsed = parsePreviewFrame(bytes)
+            scope.launch {
+                rawFramesSeen++
+                lastFrameType = parsed.frameType
+                parsed.angle?.let { angle ->
+                    angleFramesSeen++
+                    latestRoll = angle.roll
+                    latestPitch = angle.pitch
+                    latestYaw = angle.yaw
+                }
             }
         }
         bluetoothManager.addDataListener(listener)
         onDispose { bluetoothManager.removeDataListener(listener) }
     }
 
-    LaunchedEffect(latestRoll, latestPitch, latestYaw) {
-        val visualRoll = latestRoll.coerceIn(-28f, 28f)
-        val visualPitch = latestPitch.coerceIn(-28f, 28f)
+    LaunchedEffect(latestRoll, latestPitch, latestYaw, bagNode) {
+        val visualRoll = (latestRoll * 2.0f).coerceIn(-55f, 55f)
+        val visualPitch = (latestPitch * 2.0f).coerceIn(-55f, 55f)
 
         // Temporary first sensor animation:
         // This rotates the loaded GLB node. If the GLB contains the room/floor/walls,
@@ -112,7 +129,18 @@ fun BagPreviewPlaceholder(
             cameraNode = cameraNode,
             childNodes = childNodes
         )
-        Text("", color = Color.Transparent)
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            Text("3D sensor debug", color = Color.White, fontSize = 10.sp)
+            Text("connected: $sensorConnected", color = if (sensorConnected) Color(0xFF77FF77) else Color(0xFFFF7777), fontSize = 10.sp)
+            Text("raw: $rawFramesSeen | angle: $angleFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
+            Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
+        }
     }
 }
 
@@ -122,8 +150,17 @@ private data class PreviewAngleFrame(
     val yaw: Float
 )
 
-private fun parseAngleFrame(bytes: ByteArray): PreviewAngleFrame? {
-    if (bytes.size < 11 || bytes[0] != 0x55.toByte() || bytes[1] != 0x53.toByte()) return null
+private data class PreviewParsedFrame(
+    val frameType: String,
+    val angle: PreviewAngleFrame? = null
+)
+
+private fun parsePreviewFrame(bytes: ByteArray): PreviewParsedFrame {
+    if (bytes.size < 2) return PreviewParsedFrame("raw_${bytes.size}")
+    if (bytes[0] != 0x55.toByte()) return PreviewParsedFrame("raw_${bytes.size}")
+    val type = bytes[1].toInt() and 0xFF
+    if (bytes.size < 11) return PreviewParsedFrame("wit_0x${type.toString(16)}_short_${bytes.size}")
+    if (type != 0x53) return PreviewParsedFrame("wit_0x${type.toString(16)}")
 
     fun s16(i: Int): Int {
         val low = bytes[i].toInt() and 0xFF
@@ -135,6 +172,10 @@ private fun parseAngleFrame(bytes: ByteArray): PreviewAngleFrame? {
     val pitch = (s16(4) / 32768.0 * 180.0).toFloat()
     val yaw = (s16(6) / 32768.0 * 180.0).toFloat()
 
-    if (abs(roll) > 180f || abs(pitch) > 180f || abs(yaw) > 180f) return null
-    return PreviewAngleFrame(roll = roll, pitch = pitch, yaw = yaw)
+    val angle = if (abs(roll) <= 180f && abs(pitch) <= 180f && abs(yaw) <= 180f) {
+        PreviewAngleFrame(roll = roll, pitch = pitch, yaw = yaw)
+    } else null
+    return PreviewParsedFrame("angle_0x53", angle)
 }
+
+private fun Float.format1(): String = String.format("%.1f", this)
