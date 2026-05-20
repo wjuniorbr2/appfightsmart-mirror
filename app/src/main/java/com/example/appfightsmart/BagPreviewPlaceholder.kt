@@ -65,9 +65,10 @@ private const val CAMERA_PAN_SPEED = 0.00008f
 private const val REALTIME_TILT_GAIN = 1.0f
 private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
 private const val REALTIME_SMOOTHING_ALPHA = 0.22f
-private const val BASELINE_STABLE_WINDOW_DEGREES = 0.45f
-private const val BASELINE_STABLE_GYRO_DPS = 3.0f
-private const val BASELINE_STABLE_FRAMES = 120
+// The calibration baseline files show normal still-bag wander near 0.6-0.7 deg over this window.
+private const val BASELINE_STABLE_WINDOW_DEGREES = 0.8f
+private const val BASELINE_STABLE_GYRO_DPS = 4.0f
+private const val BASELINE_STABLE_FRAMES = 80
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -282,12 +283,12 @@ fun BagPreviewPlaceholder(
         if (sensorConnected && !hasOrientationBaseline) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 10.dp)
-                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .align(Alignment.Center)
+                    .padding(horizontal = 22.dp)
+                    .background(Color(0xFFD50000).copy(alpha = 0.90f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 28.dp, vertical = 18.dp)
             ) {
-                Text("Stop the bag", color = Color.White, fontSize = 16.sp)
+                Text("STOP THE BAG", color = Color.White, fontSize = 30.sp)
             }
         }
 
@@ -439,7 +440,7 @@ private fun ModelNode.applyBagOrientation(roll: Float, pitch: Float) {
     rotation = Rotation(
         x = -roll,
         y = 0.0f,
-        z = -pitch
+        z = pitch
     )
     position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
 }
