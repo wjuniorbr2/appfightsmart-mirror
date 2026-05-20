@@ -118,6 +118,14 @@ class BluetoothManager(
             if (frameBuffer.size - i < 11) break
             val second = frameBuffer[i + 1]
 
+            if (second == 0x61.toByte()) {
+                if (frameBuffer.size - i < 20) break
+                val packet = ByteArray(20) { idx -> frameBuffer[i + idx] }
+                emit(packet)
+                i += 20
+                continue
+            }
+
             if (second == 0x71.toByte()) {
                 if (frameBuffer.size - i < 20) break
                 val packet = ByteArray(20) { idx -> frameBuffer[i + idx] }
@@ -127,10 +135,10 @@ class BluetoothManager(
                 continue
             }
 
-            val known = second == 0x61.toByte() || second == 0x62.toByte() ||
-                    second == 0x63.toByte() || second == 0x64.toByte() ||
-                    second == 0x51.toByte() || second == 0x52.toByte() ||
-                    second == 0x53.toByte() || second == 0x54.toByte()
+            val known = second == 0x62.toByte() || second == 0x63.toByte() ||
+                    second == 0x64.toByte() || second == 0x51.toByte() ||
+                    second == 0x52.toByte() || second == 0x53.toByte() ||
+                    second == 0x54.toByte()
             if (!known) { i++; continue }
             val frame = ByteArray(11) { idx -> frameBuffer[i + idx] }
             emit(frame)
