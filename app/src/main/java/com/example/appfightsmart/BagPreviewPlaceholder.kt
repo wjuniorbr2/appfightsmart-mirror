@@ -70,6 +70,13 @@ private const val REALTIME_SMOOTHING_ALPHA = 0.22f
 private const val BASELINE_STABLE_WINDOW_DEGREES = 3.0f
 private const val BASELINE_STABLE_GYRO_DPS = 18.0f
 private const val BASELINE_STABLE_FRAMES = 100
+// After the first quiet-window lock, keep the stop prompt up while WIT fusion settles.
+private const val BASELINE_VERIFY_FRAMES = 180
+private const val BASELINE_VERIFY_READY_DEGREES = 2.0f
+private const val BASELINE_VERIFY_RESET_DEGREES = 8.0f
+private const val BASELINE_VERIFY_GYRO_DPS = 20.0f
+private const val BASELINE_VERIFY_ALPHA = 0.10f
+private const val ORIENTATION_FRAME_JUMP_DEGREES = 35.0f
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -112,29 +119,43 @@ fun BagPreviewPlaceholder(
     var baselineDeltaPitchSum by remember { mutableFloatStateOf(0f) }
     var hasBaselineCandidate by remember { mutableStateOf(false) }
     var hasOrientationBaseline by remember { mutableStateOf(false) }
+    var baselineReadyForMotion by remember { mutableStateOf(false) }
     var stableBaselineFrames by remember { mutableIntStateOf(0) }
+    var baselineVerifyFrames by remember { mutableIntStateOf(0) }
     var baselineStatus by remember { mutableStateOf("waiting") }
     var displayedRoll by remember { mutableFloatStateOf(0f) }
     var displayedPitch by remember { mutableFloatStateOf(0f) }
+    var targetRoll by remember { mutableFloatStateOf(0f) }
+    var targetPitch by remember { mutableFloatStateOf(0f) }
     var rawFramesSeen by remember { mutableIntStateOf(0) }
     var angle53FramesSeen by remember { mutableIntStateOf(0) }
     var combined61FramesSeen by remember { mutableIntStateOf(0) }
     var lastFrameType by remember { mutableStateOf("none") }
     var hasLastSensorFrameHash by remember { mutableStateOf(false) }
     var lastSensorFrameHash by remember { mutableIntStateOf(0) }
+    var hasLastAcceptedAngle by remember { mutableStateOf(false) }
+    var lastAcceptedRoll by remember { mutableFloatStateOf(0f) }
+    var lastAcceptedPitch by remember { mutableFloatStateOf(0f) }
     var movingBagNode by remember { mutableStateOf<ModelNode?>(null) }
 
     LaunchedEffect(sensorConnected) {
         hasBaselineCandidate = false
         hasOrientationBaseline = false
+        baselineReadyForMotion = false
         stableBaselineFrames = 0
+        baselineVerifyFrames = 0
         baselineDeltaRollSum = 0.0f
         baselineDeltaPitchSum = 0.0f
         hasLastSensorFrameHash = false
         lastSensorFrameHash = 0
+        hasLastAcceptedAngle = false
+        lastAcceptedRoll = 0.0f
+        lastAcceptedPitch = 0.0f
         baselineStatus = if (sensorConnected) "settling" else "waiting"
         displayedRoll = 0.0f
         displayedPitch = 0.0f
+        targetRoll = 0.0f
+        targetPitch = 0.0f
         if (!sensorConnected) {
             sensorRoll = 0.0f
             sensorPitch = 0.0f
@@ -177,12 +198,26 @@ fun BagPreviewPlaceholder(
 
                 freshSensorFrames.lastOrNull { it.angle != null }?.let { orientationFrame ->
                     val angle = orientationFrame.angle ?: return@let
+                    val gyroDps = orientationFrame.gyro?.maxAbs() ?: 0.0f
                     sensorRoll = angle.roll
                     sensorPitch = angle.pitch
                     sensorYaw = angle.yaw
 
+                    if (hasLastAcceptedAngle) {
+                        val frameJump = maxOf(
+                            abs(angleDeltaDegrees(angle.roll, lastAcceptedRoll)),
+                            abs(angleDeltaDegrees(angle.pitch, lastAcceptedPitch))
+                        )
+                        if (frameJump > ORIENTATION_FRAME_JUMP_DEGREES && gyroDps <= BASELINE_VERIFY_GYRO_DPS) {
+                            baselineStatus = "jump ${frameJump.format1()}"
+                            return@let
+                        }
+                    }
+                    hasLastAcceptedAngle = true
+                    lastAcceptedRoll = angle.roll
+                    lastAcceptedPitch = angle.pitch
+
                     if (!hasOrientationBaseline) {
-                        val gyroDps = orientationFrame.gyro?.maxAbs() ?: 0.0f
                         val rollDelta = if (hasBaselineCandidate) angleDeltaDegrees(angle.roll, baselineRoll) else 0.0f
                         val pitchDelta = if (hasBaselineCandidate) angleDeltaDegrees(angle.pitch, baselinePitch) else 0.0f
                         val isWithinAngleWindow = hasBaselineCandidate &&
@@ -197,6 +232,8 @@ fun BagPreviewPlaceholder(
                             baselineDeltaPitchSum = 0.0f
                             hasBaselineCandidate = true
                             stableBaselineFrames = 1
+                            baselineVerifyFrames = 0
+                            baselineReadyForMotion = false
                             baselineStatus = "settling 1/$BASELINE_STABLE_FRAMES"
                         } else {
                             stableBaselineFrames++
@@ -207,22 +244,62 @@ fun BagPreviewPlaceholder(
                                 baselineRoll = normalizeAngleDegrees(baselineRoll + baselineDeltaRollSum / stableBaselineFrames)
                                 baselinePitch = normalizeAngleDegrees(baselinePitch + baselineDeltaPitchSum / stableBaselineFrames)
                                 hasOrientationBaseline = true
-                                baselineStatus = "locked"
+                                baselineReadyForMotion = false
+                                baselineVerifyFrames = 0
+                                baselineStatus = "verifying 0/$BASELINE_VERIFY_FRAMES"
                             }
                         }
 
                         displayedRoll = 0.0f
                         displayedPitch = 0.0f
+                        targetRoll = 0.0f
+                        targetPitch = 0.0f
                         movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch)
                         return@let
                     }
 
                     val relativeRoll = angleDeltaDegrees(angle.roll, baselineRoll)
                     val relativePitch = angleDeltaDegrees(angle.pitch, baselinePitch)
-                    val targetRoll = (relativeRoll * REALTIME_TILT_GAIN)
+                    targetRoll = (relativeRoll * REALTIME_TILT_GAIN)
                         .coerceIn(-REALTIME_MAX_ANGLE_DEGREES, REALTIME_MAX_ANGLE_DEGREES)
-                    val targetPitch = (relativePitch * REALTIME_TILT_GAIN)
+                    targetPitch = (relativePitch * REALTIME_TILT_GAIN)
                         .coerceIn(-REALTIME_MAX_ANGLE_DEGREES, REALTIME_MAX_ANGLE_DEGREES)
+                    val targetMagnitude = maxOf(abs(targetRoll), abs(targetPitch))
+
+                    if (!baselineReadyForMotion) {
+                        if (gyroDps > BASELINE_VERIFY_GYRO_DPS || targetMagnitude > BASELINE_VERIFY_RESET_DEGREES) {
+                            baselineRoll = angle.roll
+                            baselinePitch = angle.pitch
+                            baselineDeltaRollSum = 0.0f
+                            baselineDeltaPitchSum = 0.0f
+                            hasBaselineCandidate = true
+                            hasOrientationBaseline = false
+                            baselineReadyForMotion = false
+                            stableBaselineFrames = 1
+                            baselineVerifyFrames = 0
+                            baselineStatus = "settling 1/$BASELINE_STABLE_FRAMES"
+                            displayedRoll = 0.0f
+                            displayedPitch = 0.0f
+                            targetRoll = 0.0f
+                            targetPitch = 0.0f
+                            movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch)
+                            return@let
+                        }
+
+                        baselineRoll = normalizeAngleDegrees(baselineRoll + relativeRoll * BASELINE_VERIFY_ALPHA)
+                        baselinePitch = normalizeAngleDegrees(baselinePitch + relativePitch * BASELINE_VERIFY_ALPHA)
+                        baselineVerifyFrames++
+                        baselineStatus = "verifying $baselineVerifyFrames/$BASELINE_VERIFY_FRAMES"
+                        displayedRoll = 0.0f
+                        displayedPitch = 0.0f
+                        movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch)
+
+                        if (baselineVerifyFrames >= BASELINE_VERIFY_FRAMES && targetMagnitude <= BASELINE_VERIFY_READY_DEGREES) {
+                            baselineReadyForMotion = true
+                            baselineStatus = "locked"
+                        }
+                        return@let
+                    }
 
                     displayedRoll += (targetRoll - displayedRoll) * REALTIME_SMOOTHING_ALPHA
                     displayedPitch += (targetPitch - displayedPitch) * REALTIME_SMOOTHING_ALPHA
@@ -304,7 +381,7 @@ fun BagPreviewPlaceholder(
                 }
         )
 
-        if (sensorConnected && !hasOrientationBaseline) {
+        if (sensorConnected && !baselineReadyForMotion) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -328,10 +405,11 @@ fun BagPreviewPlaceholder(
             Text("raw: $rawFramesSeen | 0x53: $angle53FramesSeen | 0x61: $combined61FramesSeen", color = Color.White, fontSize = 10.sp)
             Text("frame: $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("roll ${sensorRoll.format1()}  pitch ${sensorPitch.format1()}  yaw ${sensorYaw.format1()}", color = Color.White, fontSize = 10.sp)
+            Text("target r ${targetRoll.format1()}  p ${targetPitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("bag r ${displayedRoll.format1()}  p ${displayedPitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("base $baselineStatus r ${baselineRoll.format1()}  p ${baselinePitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
-            Text("target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
+            Text("cam target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
             Text("motion: fused orientation delta", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
