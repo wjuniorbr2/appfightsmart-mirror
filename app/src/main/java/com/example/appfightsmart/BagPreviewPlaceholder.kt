@@ -65,9 +65,9 @@ private const val CAMERA_PAN_SPEED = 0.00008f
 private const val REALTIME_TILT_GAIN = 1.0f
 private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
 private const val REALTIME_SMOOTHING_ALPHA = 0.22f
-private const val BASELINE_STABLE_WINDOW_DEGREES = 1.2f
-private const val BASELINE_STABLE_GYRO_DPS = 8.0f
-private const val BASELINE_STABLE_FRAMES = 30
+private const val BASELINE_STABLE_WINDOW_DEGREES = 0.45f
+private const val BASELINE_STABLE_GYRO_DPS = 3.0f
+private const val BASELINE_STABLE_FRAMES = 120
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -138,18 +138,25 @@ fun BagPreviewPlaceholder(
 
         val listener: (ByteArray) -> Unit = { bytes ->
             val parsedFrames = parsePreviewFrames(bytes)
+            // BluetoothManager also emits raw BLE chunks after parsed frames. Ignore those
+            // for animation/calibration so baseline settling is not double-counted.
+            val sensorFrames = if (bytes.size == 11 || bytes.size == 20) parsedFrames else emptyList()
             scope.launch {
                 rawFramesSeen += parsedFrames.size
-                lastFrameType = parsedFrames.lastOrNull()?.frameType ?: "raw_${bytes.size}"
+                if (sensorFrames.isNotEmpty()) {
+                    lastFrameType = sensorFrames.last().frameType
+                } else if (lastFrameType == "none") {
+                    lastFrameType = "raw_${bytes.size}"
+                }
 
-                parsedFrames.forEach { frame ->
+                sensorFrames.forEach { frame ->
                     when (frame.frameType) {
                         FRAME_TYPE_ANGLE_53 -> if (frame.angle != null) angle53FramesSeen++
                         FRAME_TYPE_COMBINED_61 -> if (frame.angle != null) combined61FramesSeen++
                     }
                 }
 
-                parsedFrames.lastOrNull { it.angle != null }?.let { orientationFrame ->
+                sensorFrames.lastOrNull { it.angle != null }?.let { orientationFrame ->
                     val angle = orientationFrame.angle ?: return@let
                     sensorRoll = angle.roll
                     sensorPitch = angle.pitch
