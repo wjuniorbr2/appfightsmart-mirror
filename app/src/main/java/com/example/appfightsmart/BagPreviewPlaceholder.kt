@@ -50,6 +50,11 @@ private const val CAMERA_START_DISTANCE = 0.057f
 private const val CAMERA_START_YAW_DEGREES = -25.0f
 private const val CAMERA_START_PITCH_DEGREES = 8.0f
 
+// Zoom limits are relative to your chosen CAMERA_START_DISTANCE.
+// This prevents the first pinch/drag from forcing the camera back to an old hardcoded distance.
+private const val CAMERA_MIN_DISTANCE = CAMERA_START_DISTANCE * 0.35f
+private const val CAMERA_MAX_DISTANCE = CAMERA_START_DISTANCE * 8.0f
+
 // Bag motion tuning values.
 // If the bottom still looks anchored, increase BAG_TOP_PIVOT_HEIGHT a little.
 // If the bag moves too much sideways, decrease it.
@@ -196,7 +201,7 @@ fun BagPreviewPlaceholder(
                         cameraPitchDegrees = (cameraPitchDegrees + pan.y * 0.12f)
                             .coerceIn(-25.0f, 55.0f)
                         cameraDistance = (cameraDistance / zoom)
-                            .coerceIn(0.45f, 4.0f)
+                            .coerceIn(CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE)
                     }
                 }
         )
@@ -212,7 +217,8 @@ fun BagPreviewPlaceholder(
             Text("connected: $sensorConnected", color = if (sensorConnected) Color(0xFF77FF77) else Color(0xFFFF7777), fontSize = 10.sp)
             Text("raw: $rawFramesSeen | angle: $angleFramesSeen | accel: $accelFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
-            Text("cam d ${cameraDistance.format2()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
+            Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
+            Text("zoom range ${CAMERA_MIN_DISTANCE.format3()} - ${CAMERA_MAX_DISTANCE.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
             Text("models: original-scale split GLBs", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
@@ -284,4 +290,4 @@ private fun parseSingleWitFrame(bytes: ByteArray, start: Int): PreviewParsedFram
 
 private fun Float.toRadians(): Float = (this * PI.toFloat()) / 180.0f
 private fun Float.format1(): String = String.format("%.1f", this)
-private fun Float.format2(): String = String.format("%.2f", this)
+private fun Float.format3(): String = String.format("%.3f", this)
