@@ -70,11 +70,12 @@ fun BagPreviewPlaceholder(
         if (bluetoothManager == null || !sensorConnected) return@DisposableEffect onDispose { }
 
         val listener: (ByteArray) -> Unit = { bytes ->
-            val parsed = parsePreviewFrame(bytes)
+            val parsedFrames = parsePreviewFrames(bytes)
             scope.launch {
                 rawFramesSeen++
-                lastFrameType = parsed.frameType
-                parsed.angle?.let { angle ->
+                val last = parsedFrames.lastOrNull()
+                lastFrameType = last?.frameType ?: "raw_${bytes.size}"
+                parsedFrames.lastOrNull { it.angle != null }?.angle?.let { angle ->
                     angleFramesSeen++
                     latestRoll = angle.roll
                     latestPitch = angle.pitch
@@ -100,17 +101,15 @@ fun BagPreviewPlaceholder(
 
     val childNodes = rememberNodes {
         val roomNode = ModelNode(
-            modelInstance = modelLoader.createModelInstance("models/room_static.glb"),
-            scaleToUnits = 2.35f
+            modelInstance = modelLoader.createModelInstance("models/room_static.glb")
         ).apply {
-            position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
+            position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
         }
 
         val bagNode = ModelNode(
-            modelInstance = modelLoader.createModelInstance("models/bag_moving.glb"),
-            scaleToUnits = 2.35f
+            modelInstance = modelLoader.createModelInstance("models/bag_moving.glb")
         ).apply {
-            position = Position(x = 0.0f, y = -0.18f, z = 0.0f)
+            position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
         }
 
         movingBagNode = bagNode
@@ -144,7 +143,7 @@ fun BagPreviewPlaceholder(
             Text("connected: $sensorConnected", color = if (sensorConnected) Color(0xFF77FF77) else Color(0xFFFF7777), fontSize = 10.sp)
             Text("raw: $rawFramesSeen | angle: $angleFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
-            Text("models: room_static + bag_moving", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
+            Text("models: original-scale split GLBs", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
 }
@@ -160,14 +159,28 @@ private data class PreviewParsedFrame(
     val angle: PreviewAngleFrame? = null
 )
 
-private fun parsePreviewFrame(bytes: ByteArray): PreviewParsedFrame {
-    if (bytes.size < 2) return PreviewParsedFrame("raw_${bytes.size}")
-    if (bytes[0] != 0x55.toByte()) return PreviewParsedFrame("raw_${bytes.size}")
-    val type = bytes[1].toInt() and 0xFF
-    if (bytes.size < 11) return PreviewParsedFrame("wit_0x${type.toString(16)}_short_${bytes.size}")
+private fun parsePreviewFrames(bytes: ByteArray): List<PreviewParsedFrame> {
+    val frames = mutableListOf<PreviewParsedFrame>()
+    var i = 0
+    while (i <= bytes.size - 11) {
+        if (bytes[i] == 0x55.toByte()) {
+            frames += parseSingleWitFrame(bytes, i)
+            i += 11
+        } else {
+            i++
+        }
+    }
+    if (frames.isEmpty()) frames += PreviewParsedFrame("raw_${bytes.size}")
+    return frames
+}
+
+private fun parseSingleWitFrame(bytes: ByteArray, start: Int): PreviewParsedFrame {
+    if (start + 10 >= bytes.size) return PreviewParsedFrame("short_${bytes.size - start}")
+    val type = bytes[start + 1].toInt() and 0xFF
     if (type != 0x53) return PreviewParsedFrame("wit_0x${type.toString(16)}")
 
-    fun s16(i: Int): Int {
+    fun s16(offset: Int): Int {
+        val i = start + offset
         val low = bytes[i].toInt() and 0xFF
         val high = bytes[i + 1].toInt()
         return (high shl 8) or low
