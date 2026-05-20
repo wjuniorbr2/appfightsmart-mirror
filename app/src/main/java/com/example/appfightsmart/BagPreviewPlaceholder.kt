@@ -35,6 +35,7 @@ import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberModelLoader
 import io.github.sceneview.rememberNodes
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
@@ -59,10 +60,16 @@ private const val CAMERA_ROTATE_SPEED_X = 0.20f
 private const val CAMERA_ROTATE_SPEED_Y = 0.12f
 private const val CAMERA_PAN_SPEED = 0.00008f
 
-// Bag motion tuning values.
-// The current test rotates the bag only. Realistic top-hinged swing depends on
-// bag_moving.glb having its exported origin/pivot at the top chain/support point.
-private const val SENSOR_VISUAL_GAIN = 1.0f
+// Pendulum swing tuning.
+// Acceleration starts the swing, but the visible motion is a damped pendulum.
+// Bigger IMPULSE_GAIN = stronger hit makes a bigger swing.
+// Bigger SPRING = faster return. Bigger DAMPING = less follow-through.
+private const val SWING_IMPULSE_GAIN = 520.0f
+private const val SWING_SPRING = 13.0f
+private const val SWING_DAMPING = 1.15f
+private const val SWING_MAX_ANGLE_DEGREES = 32.0f
+private const val ACCEL_BASELINE_ALPHA = 0.004f
+private const val ACCEL_DEADZONE_G = 0.08f
 
 @Composable
 fun BagPreviewPlaceholder(
@@ -97,6 +104,11 @@ fun BagPreviewPlaceholder(
     var latestRoll by remember { mutableFloatStateOf(0f) }
     var latestPitch by remember { mutableFloatStateOf(0f) }
     var latestYaw by remember { mutableFloatStateOf(0f) }
+    var accelX by remember { mutableFloatStateOf(0f) }
+    var accelY by remember { mutableFloatStateOf(0f) }
+    var baselineX by remember { mutableFloatStateOf(0f) }
+    var baselineY by remember { mutableFloatStateOf(0f) }
+    var hasAccelBaseline by remember { mutableStateOf(false) }
     var rawFramesSeen by remember { mutableIntStateOf(0) }
     var angleFramesSeen by remember { mutableIntStateOf(0) }
     var accelFramesSeen by remember { mutableIntStateOf(0) }
@@ -115,19 +127,22 @@ fun BagPreviewPlaceholder(
 
                 parsedFrames.lastOrNull { it.angle != null }?.angle?.let { angle ->
                     angleFramesSeen++
-                    latestRoll = angle.roll
-                    latestPitch = angle.pitch
+                    // Keep angle values in the debug overlay when real angle frames arrive.
                     latestYaw = angle.yaw
                 }
 
-                // Fallback movement: if angle frames are not present, animate from acceleration frames.
                 parsedFrames.lastOrNull { it.accel != null }?.accel?.let { accel ->
                     accelFramesSeen++
-                    if (angleFramesSeen == 0) {
-                        latestRoll = accel.x * 8.0f
-                        latestPitch = accel.y * 8.0f
-                        latestYaw = 0f
+                    if (!hasAccelBaseline) {
+                        baselineX = accel.x
+                        baselineY = accel.y
+                        hasAccelBaseline = true
+                    } else {
+                        baselineX = baselineX * (1.0f - ACCEL_BASELINE_ALPHA) + accel.x * ACCEL_BASELINE_ALPHA
+                        baselineY = baselineY * (1.0f - ACCEL_BASELINE_ALPHA) + accel.y * ACCEL_BASELINE_ALPHA
                     }
+                    accelX = accel.x
+                    accelY = accel.y
                 }
             }
         }
@@ -135,25 +150,44 @@ fun BagPreviewPlaceholder(
         onDispose { bluetoothManager.removeDataListener(listener) }
     }
 
-    LaunchedEffect(latestRoll, latestPitch, latestYaw, movingBagNode) {
-        val visualRoll = (latestRoll * SENSOR_VISUAL_GAIN).coerceIn(-55f, 55f)
-        val visualPitch = (latestPitch * SENSOR_VISUAL_GAIN).coerceIn(-55f, 55f)
+    LaunchedEffect(movingBagNode) {
+        var swingRoll = 0.0f
+        var swingPitch = 0.0f
+        var velocityRoll = 0.0f
+        var velocityPitch = 0.0f
+        val dt = 1.0f / 60.0f
 
-        val rotationX = -visualPitch
-        val rotationZ = -visualRoll
+        while (true) {
+            val lateralX = deadzone(accelX - baselineX, ACCEL_DEADZONE_G)
+            val lateralY = deadzone(accelY - baselineY, ACCEL_DEADZONE_G)
 
-        // Rotate only. Do not translate the model here; translation made the bag slide/teleport.
-        // If this tilts around the wrong point, fix the exported pivot/origin of bag_moving.glb.
-        movingBagNode?.rotation = Rotation(
-            x = rotationX,
-            y = 0.0f,
-            z = rotationZ
-        )
-        movingBagNode?.position = Position(
-            x = 0.0f,
-            y = 0.0f,
-            z = 0.0f
-        )
+            // Acceleration adds energy to the pendulum instead of directly setting the angle.
+            velocityRoll += lateralX * SWING_IMPULSE_GAIN * dt
+            velocityPitch += lateralY * SWING_IMPULSE_GAIN * dt
+
+            velocityRoll += (-SWING_SPRING * swingRoll - SWING_DAMPING * velocityRoll) * dt
+            velocityPitch += (-SWING_SPRING * swingPitch - SWING_DAMPING * velocityPitch) * dt
+
+            swingRoll = (swingRoll + velocityRoll * dt).coerceIn(-SWING_MAX_ANGLE_DEGREES, SWING_MAX_ANGLE_DEGREES)
+            swingPitch = (swingPitch + velocityPitch * dt).coerceIn(-SWING_MAX_ANGLE_DEGREES, SWING_MAX_ANGLE_DEGREES)
+
+            if (abs(swingRoll) >= SWING_MAX_ANGLE_DEGREES) velocityRoll *= -0.25f
+            if (abs(swingPitch) >= SWING_MAX_ANGLE_DEGREES) velocityPitch *= -0.25f
+
+            latestRoll = swingRoll
+            latestPitch = swingPitch
+
+            // Because bag_moving.glb origin is now at the top pivot, rotation only should make
+            // the bottom swing while the top stays attached to the support.
+            movingBagNode?.rotation = Rotation(
+                x = -swingPitch,
+                y = 0.0f,
+                z = -swingRoll
+            )
+            movingBagNode?.position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
+
+            delay(16)
+        }
     }
 
     val childNodes = rememberNodes {
@@ -224,10 +258,11 @@ fun BagPreviewPlaceholder(
             Text("3D sensor debug", color = Color.White, fontSize = 10.sp)
             Text("connected: $sensorConnected", color = if (sensorConnected) Color(0xFF77FF77) else Color(0xFFFF7777), fontSize = 10.sp)
             Text("raw: $rawFramesSeen | angle: $angleFramesSeen | accel: $accelFramesSeen | $lastFrameType", color = Color.White, fontSize = 10.sp)
-            Text("r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
+            Text("swing r ${latestRoll.format1()}  p ${latestPitch.format1()}  y ${latestYaw.format1()}", color = Color.White, fontSize = 10.sp)
+            Text("acc ${accelX.format2()}, ${accelY.format2()} base ${baselineX.format2()}, ${baselineY.format2()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
-            Text("motion: rotation only", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
+            Text("motion: damped pendulum", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
         }
     }
 }
@@ -296,6 +331,13 @@ private fun parseSingleWitFrame(bytes: ByteArray, start: Int): PreviewParsedFram
     }
 }
 
+private fun deadzone(value: Float, threshold: Float): Float = when {
+    value > threshold -> value - threshold
+    value < -threshold -> value + threshold
+    else -> 0.0f
+}
+
 private fun Float.toRadians(): Float = (this * PI.toFloat()) / 180.0f
 private fun Float.format1(): String = String.format("%.1f", this)
+private fun Float.format2(): String = String.format("%.2f", this)
 private fun Float.format3(): String = String.format("%.3f", this)
