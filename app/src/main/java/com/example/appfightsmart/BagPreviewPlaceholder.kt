@@ -65,6 +65,9 @@ private const val CAMERA_PAN_SPEED = 0.00008f
 private const val REALTIME_TILT_GAIN = 1.0f
 private const val REALTIME_MAX_ANGLE_DEGREES = 60.0f
 private const val REALTIME_SMOOTHING_ALPHA = 0.22f
+private const val BASELINE_STABLE_WINDOW_DEGREES = 1.2f
+private const val BASELINE_STABLE_GYRO_DPS = 8.0f
+private const val BASELINE_STABLE_FRAMES = 30
 private const val FRAME_TYPE_ANGLE_53 = "angle_0x53"
 private const val FRAME_TYPE_COMBINED_61 = "combined_0x61"
 
@@ -103,7 +106,10 @@ fun BagPreviewPlaceholder(
     var sensorYaw by remember { mutableFloatStateOf(0f) }
     var baselineRoll by remember { mutableFloatStateOf(0f) }
     var baselinePitch by remember { mutableFloatStateOf(0f) }
+    var hasBaselineCandidate by remember { mutableStateOf(false) }
     var hasOrientationBaseline by remember { mutableStateOf(false) }
+    var stableBaselineFrames by remember { mutableIntStateOf(0) }
+    var baselineStatus by remember { mutableStateOf("waiting") }
     var displayedRoll by remember { mutableFloatStateOf(0f) }
     var displayedPitch by remember { mutableFloatStateOf(0f) }
     var rawFramesSeen by remember { mutableIntStateOf(0) }
@@ -113,7 +119,10 @@ fun BagPreviewPlaceholder(
     var movingBagNode by remember { mutableStateOf<ModelNode?>(null) }
 
     LaunchedEffect(sensorConnected) {
+        hasBaselineCandidate = false
         hasOrientationBaseline = false
+        stableBaselineFrames = 0
+        baselineStatus = if (sensorConnected) "settling" else "waiting"
         displayedRoll = 0.0f
         displayedPitch = 0.0f
         if (!sensorConnected) {
@@ -140,15 +149,40 @@ fun BagPreviewPlaceholder(
                     }
                 }
 
-                parsedFrames.lastOrNull { it.angle != null }?.angle?.let { angle ->
+                parsedFrames.lastOrNull { it.angle != null }?.let { orientationFrame ->
+                    val angle = orientationFrame.angle ?: return@let
                     sensorRoll = angle.roll
                     sensorPitch = angle.pitch
                     sensorYaw = angle.yaw
 
                     if (!hasOrientationBaseline) {
-                        baselineRoll = angle.roll
-                        baselinePitch = angle.pitch
-                        hasOrientationBaseline = true
+                        val gyroDps = orientationFrame.gyro?.maxAbs() ?: 0.0f
+                        val isWithinAngleWindow = hasBaselineCandidate &&
+                                abs(angleDeltaDegrees(angle.roll, baselineRoll)) <= BASELINE_STABLE_WINDOW_DEGREES &&
+                                abs(angleDeltaDegrees(angle.pitch, baselinePitch)) <= BASELINE_STABLE_WINDOW_DEGREES
+                        val isStable = isWithinAngleWindow && gyroDps <= BASELINE_STABLE_GYRO_DPS
+
+                        if (!isStable) {
+                            baselineRoll = angle.roll
+                            baselinePitch = angle.pitch
+                            hasBaselineCandidate = true
+                            stableBaselineFrames = 0
+                            baselineStatus = "settling"
+                        } else {
+                            stableBaselineFrames++
+                            baselineStatus = "settling $stableBaselineFrames/$BASELINE_STABLE_FRAMES"
+                            if (stableBaselineFrames >= BASELINE_STABLE_FRAMES) {
+                                baselineRoll = angle.roll
+                                baselinePitch = angle.pitch
+                                hasOrientationBaseline = true
+                                baselineStatus = "locked"
+                            }
+                        }
+
+                        displayedRoll = 0.0f
+                        displayedPitch = 0.0f
+                        movingBagNode?.applyBagOrientation(displayedRoll, displayedPitch)
+                        return@let
                     }
 
                     val relativeRoll = angleDeltaDegrees(angle.roll, baselineRoll)
@@ -251,7 +285,7 @@ fun BagPreviewPlaceholder(
             Text("frame: $lastFrameType", color = Color.White, fontSize = 10.sp)
             Text("roll ${sensorRoll.format1()}  pitch ${sensorPitch.format1()}  yaw ${sensorYaw.format1()}", color = Color.White, fontSize = 10.sp)
             Text("bag r ${displayedRoll.format1()}  p ${displayedPitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
-            Text("base r ${baselineRoll.format1()}  p ${baselinePitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
+            Text("base $baselineStatus r ${baselineRoll.format1()}  p ${baselinePitch.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("cam d ${cameraDistance.format3()} yaw ${cameraYawDegrees.format1()} pitch ${cameraPitchDegrees.format1()}", color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp)
             Text("target ${cameraTargetX.format3()}, ${cameraTargetY.format3()}, ${cameraTargetZ.format3()}", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
             Text("motion: fused orientation delta", color = Color.White.copy(alpha = 0.75f), fontSize = 9.sp)
@@ -271,10 +305,17 @@ private data class PreviewAccelFrame(
     val z: Float
 )
 
+private data class PreviewGyroFrame(
+    val x: Float,
+    val y: Float,
+    val z: Float
+)
+
 private data class PreviewParsedFrame(
     val frameType: String,
     val angle: PreviewAngleFrame? = null,
-    val accel: PreviewAccelFrame? = null
+    val accel: PreviewAccelFrame? = null,
+    val gyro: PreviewGyroFrame? = null
 )
 
 private fun parsePreviewFrames(bytes: ByteArray): List<PreviewParsedFrame> {
@@ -324,29 +365,31 @@ private fun parsePreviewFrames(bytes: ByteArray): List<PreviewParsedFrame> {
 private fun parseSingleWitFrame(bytes: ByteArray, start: Int): PreviewParsedFrame {
     val type = bytes[start + 1].toInt() and 0xFF
     return when (type) {
-        0x51 -> {
-            val x = (s16(bytes, start, 2) / 32768.0 * 16.0).toFloat()
-            val y = (s16(bytes, start, 4) / 32768.0 * 16.0).toFloat()
-            val z = (s16(bytes, start, 6) / 32768.0 * 16.0).toFloat()
-            PreviewParsedFrame("accel_0x51", accel = PreviewAccelFrame(x, y, z))
-        }
+        0x51 -> PreviewParsedFrame("accel_0x51", accel = readAccel(bytes, start))
+        0x52 -> PreviewParsedFrame("gyro_0x52", gyro = readGyro(bytes, start))
         0x53 -> PreviewParsedFrame(FRAME_TYPE_ANGLE_53, angle = readAngle(bytes, start, rollOffset = 2, pitchOffset = 4, yawOffset = 6))
         else -> PreviewParsedFrame("wit_0x${type.toString(16)}")
     }
 }
 
-private fun parseCombinedWitFrame(bytes: ByteArray, start: Int): PreviewParsedFrame {
-    val accel = PreviewAccelFrame(
-        x = (s16(bytes, start, 2) / 32768.0 * 16.0).toFloat(),
-        y = (s16(bytes, start, 4) / 32768.0 * 16.0).toFloat(),
-        z = (s16(bytes, start, 6) / 32768.0 * 16.0).toFloat()
-    )
-    return PreviewParsedFrame(
-        frameType = FRAME_TYPE_COMBINED_61,
-        angle = readAngle(bytes, start, rollOffset = 14, pitchOffset = 16, yawOffset = 18),
-        accel = accel
-    )
-}
+private fun parseCombinedWitFrame(bytes: ByteArray, start: Int): PreviewParsedFrame = PreviewParsedFrame(
+    frameType = FRAME_TYPE_COMBINED_61,
+    angle = readAngle(bytes, start, rollOffset = 14, pitchOffset = 16, yawOffset = 18),
+    accel = readAccel(bytes, start),
+    gyro = readGyro(bytes, start)
+)
+
+private fun readAccel(bytes: ByteArray, start: Int): PreviewAccelFrame = PreviewAccelFrame(
+    x = (s16(bytes, start, 2) / 32768.0 * 16.0).toFloat(),
+    y = (s16(bytes, start, 4) / 32768.0 * 16.0).toFloat(),
+    z = (s16(bytes, start, 6) / 32768.0 * 16.0).toFloat()
+)
+
+private fun readGyro(bytes: ByteArray, start: Int): PreviewGyroFrame = PreviewGyroFrame(
+    x = (s16(bytes, start, 8) / 32768.0 * 2000.0).toFloat(),
+    y = (s16(bytes, start, 10) / 32768.0 * 2000.0).toFloat(),
+    z = (s16(bytes, start, 12) / 32768.0 * 2000.0).toFloat()
+)
 
 private fun readAngle(bytes: ByteArray, start: Int, rollOffset: Int, pitchOffset: Int, yawOffset: Int): PreviewAngleFrame? {
     val roll = (s16(bytes, start, rollOffset) / 32768.0 * 180.0).toFloat()
@@ -370,6 +413,8 @@ private fun angleDeltaDegrees(current: Float, baseline: Float): Float {
     while (delta < -180.0f) delta += 360.0f
     return delta
 }
+
+private fun PreviewGyroFrame.maxAbs(): Float = maxOf(abs(x), abs(y), abs(z))
 
 private fun ModelNode.applyBagOrientation(roll: Float, pitch: Float) {
     rotation = Rotation(
