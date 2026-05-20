@@ -272,6 +272,18 @@ fun BagPreviewPlaceholder(
                 }
         )
 
+        if (sensorConnected && !hasOrientationBaseline) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("Stop the bag", color = Color.White, fontSize = 16.sp)
+            }
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -418,9 +430,9 @@ private fun PreviewGyroFrame.maxAbs(): Float = maxOf(abs(x), abs(y), abs(z))
 
 private fun ModelNode.applyBagOrientation(roll: Float, pitch: Float) {
     rotation = Rotation(
-        x = -pitch,
+        x = -roll,
         y = 0.0f,
-        z = -roll
+        z = -pitch
     )
     position = Position(x = 0.0f, y = 0.0f, z = 0.0f)
 }
