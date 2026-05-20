@@ -45,7 +45,7 @@ import kotlin.math.sin
 // Camera tuning values.
 // Change these first when adjusting the default view.
 private const val CAMERA_TARGET_X = 0.0f
-private const val CAMERA_TARGET_Y = 0.037f
+private const val CAMERA_TARGET_Y = -0.02f
 private const val CAMERA_TARGET_Z = 0.0f
 private const val CAMERA_START_DISTANCE = 0.057f
 private const val CAMERA_START_YAW_DEGREES = -25.0f
